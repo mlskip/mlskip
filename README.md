@@ -1,7 +1,6 @@
-# UH-UTN Block skipping
+# ⏩️ MLSkip
 
-Shared repository for research related to block skipping using neural network
-verification tools and SQL4NN.
+Block skipping using neural network verification tools.
 
 ## Setup
 
