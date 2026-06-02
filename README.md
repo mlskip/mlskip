@@ -1,6 +1,6 @@
 # ⏩️ MLSkip
 
-Block skipping using neural network verification tools.
+MLSkip uses neural network verification tools to prune Parquet row groups when querying with ML/AI table predicates, using just lightweight metadata like as min-max statistics.
 
 ## Setup
 
