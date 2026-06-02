@@ -1,0 +1,57 @@
+[
+  {
+    "name": "store_sales_net_profit",
+    "description": "Regressor that fits store-sale net profit from paid amount and wholesale cost.",
+    "comment": "Structured monetary regression over store-sales measures where the target is not passed as an input.",
+    "table": "store_sales",
+    "task_type": "regressor",
+    "target_expression": "CAST(ss_net_profit AS DOUBLE)",
+    "features": [
+      {
+        "name": "net_paid",
+        "expression": "CAST(ss_net_paid AS DOUBLE)"
+      },
+      {
+        "name": "ext_wholesale_cost",
+        "expression": "CAST(ss_ext_wholesale_cost AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "store_sales_net_paid",
+    "description": "Three-input regressor that fits net paid from extended sales price, discount amount, and tax.",
+    "comment": "Included as a structured arithmetic regression task over standard TPC-DS sales measures, where the target should be closely determined by the provided monetary inputs.",
+    "table": "store_sales",
+    "task_type": "regressor",
+    "target_expression": "CAST(ss_net_paid AS DOUBLE)",
+    "features": [
+      {
+        "name": "ext_sales_price",
+        "expression": "CAST(ss_ext_sales_price AS DOUBLE)"
+      },
+      {
+        "name": "ext_discount_amt",
+        "expression": "CAST(ss_ext_discount_amt AS DOUBLE)"
+      },
+      {
+        "name": "ext_tax",
+        "expression": "CAST(ss_ext_tax AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "store_sales_discount_band_classifier",
+    "description": "Classifier that predicts a discount band directly from the extended discount amount.",
+    "comment": "Included as a direct thresholding classifier where the target bucket is defined entirely by ss_ext_discount_amt, making it a clean sanity-check classification task.",
+    "table": "store_sales",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN ss_ext_discount_amt < 5 THEN 0 WHEN ss_ext_discount_amt < 15 THEN 1 WHEN ss_ext_discount_amt < 30 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "ext_discount_amt",
+        "expression": "CAST(ss_ext_discount_amt AS DOUBLE)"
+      }
+    ]
+  }
+]

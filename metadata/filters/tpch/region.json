@@ -1,0 +1,11 @@
+[
+  {
+    "name": "region_classifier",
+    "description": "Use the region classifier to identify rows mapped to region key 4 (MIDDLE EAST).",
+    "table": "region",
+    "model_name": "region_classifier",
+    "sql_predicate": "CAST(r_regionkey AS INTEGER) = 4",
+    "filter_type": "classifier_class",
+    "target_class": 4
+  }
+]

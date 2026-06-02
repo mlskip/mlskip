@@ -1,0 +1,11 @@
+[
+  {
+    "name": "nation_region_classifier",
+    "description": "Use the nation classifier to identify rows mapped to region class 3 (EUROPE in TPCH).",
+    "table": "nation",
+    "model_name": "nation_region_classifier",
+    "sql_predicate": "CAST(n_regionkey AS INTEGER) = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  }
+]

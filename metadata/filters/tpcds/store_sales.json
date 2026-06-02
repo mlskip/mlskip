@@ -1,0 +1,31 @@
+[
+  {
+    "name": "store_sales_net_profit",
+    "description": "Use the store-sales net-profit regressor to identify rows with net profit in [2000, 4000].",
+    "table": "store_sales",
+    "model_name": "store_sales_net_profit",
+    "sql_predicate": "CAST(ss_net_profit AS DOUBLE) BETWEEN 2000.0 AND 4000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 2000.0,
+    "predicate_upper": 4000.0
+  },
+  {
+    "name": "store_sales_net_paid",
+    "description": "Use the store-sales net-paid regressor to identify rows with net paid in [6000, 9000].",
+    "table": "store_sales",
+    "model_name": "store_sales_net_paid",
+    "sql_predicate": "CAST(ss_net_paid AS DOUBLE) BETWEEN 6000.0 AND 9000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 6000.0,
+    "predicate_upper": 9000.0
+  },
+  {
+    "name": "store_sales_discount_band_classifier",
+    "description": "Use the store-sales discount-band classifier to identify rows in the highest discount bucket.",
+    "table": "store_sales",
+    "model_name": "store_sales_discount_band_classifier",
+    "sql_predicate": "CASE WHEN ss_ext_discount_amt < 5 THEN 0 WHEN ss_ext_discount_amt < 15 THEN 1 WHEN ss_ext_discount_amt < 30 THEN 2 ELSE 3 END = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  }
+]

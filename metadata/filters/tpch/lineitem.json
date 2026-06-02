@@ -1,0 +1,31 @@
+[
+  {
+    "name": "discounted_price",
+    "description": "Use the discounted_price regressor to identify rows with discounted price in [60000, 65000].",
+    "table": "lineitem",
+    "model_name": "discounted_price",
+    "sql_predicate": "CAST(l_extendedprice * (1 - l_discount) AS DOUBLE) BETWEEN 60000.0 AND 65000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 60000.0,
+    "predicate_upper": 65000.0
+  },
+  {
+    "name": "charge",
+    "description": "Use the charge regressor to identify rows with charge in [65000, 70000].",
+    "table": "lineitem",
+    "model_name": "charge",
+    "sql_predicate": "CAST(l_extendedprice * (1 - l_discount) * (1 + l_tax) AS DOUBLE) BETWEEN 65000.0 AND 70000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 65000.0,
+    "predicate_upper": 70000.0
+  },
+  {
+    "name": "ship_mode_classifier",
+    "description": "Use the proxy-label classifier to identify rows predicted as ship mode class 0 (AIR).",
+    "table": "lineitem",
+    "model_name": "ship_mode_classifier",
+    "sql_predicate": "CASE l_shipmode WHEN 'AIR' THEN 0 WHEN 'AIR REG' THEN 1 WHEN 'MAIL' THEN 2 ELSE 3 END = 0",
+    "filter_type": "classifier_class",
+    "target_class": 0
+  }
+]

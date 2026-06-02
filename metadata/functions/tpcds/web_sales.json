@@ -1,0 +1,69 @@
+[
+  {
+    "name": "web_sales_net_profit",
+    "description": "Regressor that fits web-sale net profit from paid amount, wholesale cost, and shipping cost.",
+    "comment": "Structured monetary regression over web-sales measures where the target is not passed as an input.",
+    "table": "web_sales",
+    "task_type": "regressor",
+    "target_expression": "CAST(ws_net_profit AS DOUBLE)",
+    "features": [
+      {
+        "name": "net_paid",
+        "expression": "CAST(ws_net_paid AS DOUBLE)"
+      },
+      {
+        "name": "ext_wholesale_cost",
+        "expression": "CAST(ws_ext_wholesale_cost AS DOUBLE)"
+      },
+      {
+        "name": "ext_ship_cost",
+        "expression": "CAST(ws_ext_ship_cost AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "web_sales_net_paid",
+    "description": "Three-input regressor that fits net paid from extended sales price, discount amount, and tax.",
+    "comment": "Included as a structured arithmetic regression task over standard TPC-DS web-sales measures, where the target should be closely determined by the provided monetary inputs.",
+    "table": "web_sales",
+    "task_type": "regressor",
+    "target_expression": "CAST(ws_net_paid AS DOUBLE)",
+    "features": [
+      {
+        "name": "ext_sales_price",
+        "expression": "CAST(ws_ext_sales_price AS DOUBLE)"
+      },
+      {
+        "name": "ext_discount_amt",
+        "expression": "CAST(ws_ext_discount_amt AS DOUBLE)"
+      },
+      {
+        "name": "ext_tax",
+        "expression": "CAST(ws_ext_tax AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "web_sales_ship_mode_classifier",
+    "description": "Proxy-label classifier that predicts whether the order used a low, medium, or high ship-mode key range from sales attributes and shipping cost.",
+    "comment": "Kept as a coarse proxy-label benchmark rather than a semantic rule: the goal is to see whether order size, taxes, and shipping cost carry enough signal to recover broad ship-mode classes.",
+    "table": "web_sales",
+    "task_type": "classifier",
+    "num_classes": 3,
+    "target_expression": "CASE WHEN ws_ship_mode_sk < 7 THEN 0 WHEN ws_ship_mode_sk < 14 THEN 1 ELSE 2 END",
+    "features": [
+      {
+        "name": "quantity",
+        "expression": "CAST(ws_quantity AS DOUBLE)"
+      },
+      {
+        "name": "ext_tax",
+        "expression": "CAST(ws_ext_tax AS DOUBLE)"
+      },
+      {
+        "name": "ext_ship_cost",
+        "expression": "CAST(ws_ext_ship_cost AS DOUBLE)"
+      }
+    ]
+  }
+]

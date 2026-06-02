@@ -1,0 +1,32 @@
+[
+  {
+    "name": "date_dim_quarter_classifier",
+    "description": "Classifier that predicts quarter-of-year directly from month-of-year.",
+    "comment": "Added as a clean calendar lookup task where month should be sufficient to recover quarter exactly.",
+    "table": "date_dim",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CAST(d_qoy - 1 AS INTEGER)",
+    "features": [
+      {
+        "name": "month_of_year",
+        "expression": "CAST(d_moy AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "date_dim_weekend_classifier",
+    "description": "Classifier that predicts whether a date falls on a weekend from day-of-week.",
+    "comment": "Added as a deterministic calendar classifier where the weekend label should be recoverable directly from d_dow.",
+    "table": "date_dim",
+    "task_type": "classifier",
+    "num_classes": 2,
+    "target_expression": "CAST(CASE WHEN d_weekend = 'Y' THEN 1 ELSE 0 END AS INTEGER)",
+    "features": [
+      {
+        "name": "day_of_week",
+        "expression": "CAST(d_dow AS DOUBLE)"
+      }
+    ]
+  }
+]

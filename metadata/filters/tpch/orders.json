@@ -1,0 +1,11 @@
+[
+  {
+    "name": "order_priority_classifier",
+    "description": "Use the proxy-label order classifier to identify rows predicted as 2-HIGH priority.",
+    "table": "orders",
+    "model_name": "order_priority_classifier",
+    "sql_predicate": "CASE o_orderpriority WHEN '1-URGENT' THEN 0 WHEN '2-HIGH' THEN 1 WHEN '3-MEDIUM' THEN 2 WHEN '4-NOT SPECIFIED' THEN 3 ELSE 4 END = 1",
+    "filter_type": "classifier_class",
+    "target_class": 1
+  }
+]

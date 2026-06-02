@@ -1,0 +1,32 @@
+[
+  {
+    "name": "time_dim_hour_classifier",
+    "description": "Classifier that predicts the hour of day directly from the encoded time value.",
+    "comment": "Added as a lookup-style classifier where t_time should map strongly to t_hour and provide a small but clean sanity-check task.",
+    "table": "time_dim",
+    "task_type": "classifier",
+    "num_classes": 24,
+    "target_expression": "CAST(t_hour AS INTEGER)",
+    "features": [
+      {
+        "name": "time_hhmmss",
+        "expression": "CAST(t_time AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "time_dim_day_part_classifier",
+    "description": "Classifier that predicts a coarse day-part bucket directly from hour-of-day.",
+    "comment": "Added as a direct thresholding classifier where the target bucket is defined entirely by t_hour, making it a clean sanity-check classification task.",
+    "table": "time_dim",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN t_hour < 6 THEN 0 WHEN t_hour < 12 THEN 1 WHEN t_hour < 18 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "hour",
+        "expression": "CAST(t_hour AS DOUBLE)"
+      }
+    ]
+  }
+]

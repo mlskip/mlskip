@@ -1,0 +1,11 @@
+[
+  {
+    "name": "supplier_balance_classifier",
+    "description": "Use the supplier classifier to identify rows in the top balance bucket.",
+    "table": "supplier",
+    "model_name": "supplier_balance_classifier",
+    "sql_predicate": "CASE WHEN s_acctbal < 0 THEN 0 WHEN s_acctbal < 3000 THEN 1 WHEN s_acctbal < 6000 THEN 2 ELSE 3 END = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  }
+]

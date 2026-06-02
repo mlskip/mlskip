@@ -1,0 +1,20 @@
+{
+  "database": "tpch",
+  "description": "TPC-H scale factor 1 exported to CSV and then loaded into DuckDB.",
+  "source_format": "csv",
+  "csv_source": "duckdb_dbgen",
+  "scale_factor": 1,
+  "training_row_count": 2000,
+  "tables": [
+    "customer",
+    "lineitem",
+    "nation",
+    "orders",
+    "part",
+    "partsupp",
+    "region",
+    "supplier"
+  ],
+  "duckdb_file": ".cache/duckdb/tpch_sf1.duckdb",
+  "data_dir": "data/tpch"
+}

@@ -1,0 +1,31 @@
+[
+  {
+    "name": "store_returns_net_loss",
+    "description": "Use the store-returns net-loss regressor to identify rows with net loss in [1000, 1500].",
+    "table": "store_returns",
+    "model_name": "store_returns_net_loss",
+    "sql_predicate": "CAST(sr_net_loss AS DOUBLE) BETWEEN 1000.0 AND 1500.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 1000.0,
+    "predicate_upper": 1500.0
+  },
+  {
+    "name": "store_returns_return_amount",
+    "description": "Use the store-returns return-amount regressor to identify rows with return amount in [1000, 1500].",
+    "table": "store_returns",
+    "model_name": "store_returns_return_amount",
+    "sql_predicate": "CAST(sr_return_amt AS DOUBLE) BETWEEN 1000.0 AND 1500.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 1000.0,
+    "predicate_upper": 1500.0
+  },
+  {
+    "name": "store_returns_fee_band_classifier",
+    "description": "Use the store-returns fee-band classifier to identify rows in the highest return-fee bucket.",
+    "table": "store_returns",
+    "model_name": "store_returns_fee_band_classifier",
+    "sql_predicate": "CASE WHEN sr_fee < 10 THEN 0 WHEN sr_fee < 25 THEN 1 WHEN sr_fee < 50 THEN 2 ELSE 3 END = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  }
+]

@@ -1,0 +1,73 @@
+[
+  {
+    "name": "discounted_price",
+    "description": "Two-input regressor that fits discounted price from extended price and discount.",
+    "comment": "Included as a structured arithmetic regression task where the target is a direct function of the provided numeric inputs.",
+    "table": "lineitem",
+    "task_type": "regressor",
+    "target_expression": "CAST(l_extendedprice * (1 - l_discount) AS DOUBLE)",
+    "features": [
+      {
+        "name": "extendedprice",
+        "expression": "CAST(l_extendedprice AS DOUBLE)"
+      },
+      {
+        "name": "discount",
+        "expression": "CAST(l_discount AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "charge",
+    "description": "Three-input regressor that fits charge from extended price, discount, and tax.",
+    "comment": "Included as a slightly richer arithmetic regression task than discounted_price, using one extra input and multiplicative structure.",
+    "table": "lineitem",
+    "task_type": "regressor",
+    "target_expression": "CAST(l_extendedprice * (1 - l_discount) * (1 + l_tax) AS DOUBLE)",
+    "features": [
+      {
+        "name": "extendedprice",
+        "expression": "CAST(l_extendedprice AS DOUBLE)"
+      },
+      {
+        "name": "discount",
+        "expression": "CAST(l_discount AS DOUBLE)"
+      },
+      {
+        "name": "tax",
+        "expression": "CAST(l_tax AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "ship_mode_classifier",
+    "description": "Proxy-label classifier that predicts a compact ship mode class from correlated features such as quantity, discount, tax, and ship delay. The ship delay should be computed by the difference of the two dates (before it was like an explicit difference), but that's not something one stores as a metadata.",
+    "comment": "Kept as a proxy-label benchmark to test whether operational shipment attributes are predictive enough to recover ship mode classes empirically.",
+    "table": "lineitem",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE l_shipmode WHEN 'AIR' THEN 0 WHEN 'AIR REG' THEN 1 WHEN 'MAIL' THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "quantity",
+        "expression": "CAST(l_quantity AS DOUBLE)"
+      },
+      {
+        "name": "discount",
+        "expression": "CAST(l_discount AS DOUBLE)"
+      },
+      {
+        "name": "tax",
+        "expression": "CAST(l_tax AS DOUBLE)"
+      },
+      {
+        "name": "shipdate",
+        "expression": "CAST(epoch(l_shipdate) AS DOUBLE)"
+      },
+      {
+        "name": "receiptdate",
+        "expression": "CAST(epoch(l_receiptdate) AS DOUBLE)"
+      }
+    ]
+  }
+]

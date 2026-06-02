@@ -1,0 +1,40 @@
+[
+  {
+    "name": "item_price_band_classifier",
+    "description": "Classifier that predicts a current-price band directly from current price.",
+    "comment": "Included as a direct thresholding classifier where the target band is defined entirely by i_current_price, making it a clean sanity-check classification task.",
+    "table": "item",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN i_current_price < 20 THEN 0 WHEN i_current_price < 50 THEN 1 WHEN i_current_price < 100 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "current_price",
+        "expression": "CAST(i_current_price AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "item_manager_classifier",
+    "description": "Proxy-label classifier that predicts the item manager from brand, class, and category identifiers.",
+    "comment": "Kept as a lookup-style benchmark to measure how much of the product hierarchy signal is enough to recover manager assignment on held-out rows.",
+    "table": "item",
+    "task_type": "classifier",
+    "num_classes": 100,
+    "target_expression": "CAST(i_manager_id AS INTEGER)",
+    "features": [
+      {
+        "name": "brand_id",
+        "expression": "CAST(i_brand_id AS DOUBLE)"
+      },
+      {
+        "name": "class_id",
+        "expression": "CAST(i_class_id AS DOUBLE)"
+      },
+      {
+        "name": "category_id",
+        "expression": "CAST(i_category_id AS DOUBLE)"
+      }
+    ]
+  }
+]

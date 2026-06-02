@@ -1,0 +1,25 @@
+[
+  {
+    "name": "order_priority_classifier",
+    "description": "Proxy-label classifier that predicts order-priority class from correlated features such as total price, ship priority, and order month.",
+    "comment": "Kept as a proxy-label benchmark to measure how much order metadata alone can predict priority classes, even though the target is not directly defined by these inputs.",
+    "table": "orders",
+    "task_type": "classifier",
+    "num_classes": 5,
+    "target_expression": "CASE o_orderpriority WHEN '1-URGENT' THEN 0 WHEN '2-HIGH' THEN 1 WHEN '3-MEDIUM' THEN 2 WHEN '4-NOT SPECIFIED' THEN 3 ELSE 4 END",
+    "features": [
+      {
+        "name": "totalprice",
+        "expression": "CAST(o_totalprice AS DOUBLE)"
+      },
+      {
+        "name": "shippriority",
+        "expression": "CAST(o_shippriority AS DOUBLE)"
+      },
+      {
+        "name": "order_month",
+        "expression": "CAST(EXTRACT(MONTH FROM o_orderdate) AS DOUBLE)"
+      }
+    ]
+  }
+]

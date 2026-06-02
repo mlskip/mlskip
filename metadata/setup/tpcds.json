@@ -1,0 +1,20 @@
+{
+  "database": "tpcds",
+  "description": "TPC-DS scale factor 1 exported to CSV and then loaded into DuckDB.",
+  "source_format": "csv",
+  "csv_source": "duckdb_dsdgen",
+  "scale_factor": 1,
+  "training_row_count": 2000,
+  "tables": [
+    "catalog_sales",
+    "customer_address",
+    "date_dim",
+    "item",
+    "store_returns",
+    "store_sales",
+    "time_dim",
+    "web_sales"
+  ],
+  "duckdb_file": ".cache/duckdb/tpcds_sf1.duckdb",
+  "data_dir": "data/tpcds"
+}

@@ -1,0 +1,17 @@
+[
+  {
+    "name": "nation_region_classifier",
+    "description": "Classifier that predicts region class from nation key.",
+    "comment": "Added as a small lookup-style classifier where nation key should be sufficient to recover region key exactly or near-exactly.",
+    "table": "nation",
+    "task_type": "classifier",
+    "num_classes": 5,
+    "target_expression": "CAST(n_regionkey AS INTEGER)",
+    "features": [
+      {
+        "name": "nationkey",
+        "expression": "CAST(n_nationkey AS DOUBLE)"
+      }
+    ]
+  }
+]

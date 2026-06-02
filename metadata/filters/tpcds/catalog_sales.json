@@ -1,0 +1,31 @@
+[
+  {
+    "name": "catalog_sales_net_profit",
+    "description": "Use the catalog-sales net-profit regressor to identify rows with net profit in [5000, 8000].",
+    "table": "catalog_sales",
+    "model_name": "catalog_sales_net_profit",
+    "sql_predicate": "CAST(cs_net_profit AS DOUBLE) BETWEEN 5000.0 AND 8000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 5000.0,
+    "predicate_upper": 8000.0
+  },
+  {
+    "name": "catalog_sales_net_paid",
+    "description": "Use the catalog-sales net-paid regressor to identify rows with net paid in [6000, 9000].",
+    "table": "catalog_sales",
+    "model_name": "catalog_sales_net_paid",
+    "sql_predicate": "CAST(cs_net_paid AS DOUBLE) BETWEEN 6000.0 AND 9000.0",
+    "filter_type": "regressor_range",
+    "predicate_lower": 6000.0,
+    "predicate_upper": 9000.0
+  },
+  {
+    "name": "catalog_sales_ship_mode_classifier",
+    "description": "Use the catalog-sales ship-mode classifier to identify rows in the low ship-mode key bucket.",
+    "table": "catalog_sales",
+    "model_name": "catalog_sales_ship_mode_classifier",
+    "sql_predicate": "CASE WHEN cs_ship_mode_sk < 7 THEN 0 WHEN cs_ship_mode_sk < 14 THEN 1 ELSE 2 END = 0",
+    "filter_type": "classifier_class",
+    "target_class": 0
+  }
+]

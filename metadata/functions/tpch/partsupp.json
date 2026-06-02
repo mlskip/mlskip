@@ -1,0 +1,17 @@
+[
+  {
+    "name": "partsupp_stock_classifier",
+    "description": "Classifier that predicts an availability bucket directly from available quantity.",
+    "comment": "Included as a direct thresholding classifier where the target bucket is defined entirely by availqty, so the model should fit it very well.",
+    "table": "partsupp",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN ps_availqty < 2500 THEN 0 WHEN ps_availqty < 5000 THEN 1 WHEN ps_availqty < 7500 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "availqty",
+        "expression": "CAST(ps_availqty AS DOUBLE)"
+      }
+    ]
+  }
+]

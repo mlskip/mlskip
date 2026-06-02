@@ -1,0 +1,21 @@
+[
+  {
+    "name": "part_container_classifier",
+    "description": "Proxy-label classifier that predicts a compact part-container class from correlated features such as size, retail price, and case indicators.",
+    "comment": "Kept as a proxy-label benchmark to test whether coarse part attributes carry enough signal to predict container category on held-out rows.",
+    "table": "part",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN p_container LIKE '%SM%' THEN 0 WHEN p_container LIKE '%MED%' THEN 1 WHEN p_container LIKE '%LG%' THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "size",
+        "expression": "CAST(p_size AS DOUBLE)"
+      },
+      {
+        "name": "retailprice",
+        "expression": "CAST(p_retailprice AS DOUBLE)"
+      }
+    ]
+  }
+]

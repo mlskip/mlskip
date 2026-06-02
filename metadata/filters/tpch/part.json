@@ -1,0 +1,11 @@
+[
+  {
+    "name": "part_container_classifier",
+    "description": "Use the proxy-label part classifier to identify rows predicted as the large-container class.",
+    "table": "part",
+    "model_name": "part_container_classifier",
+    "sql_predicate": "CASE WHEN p_container LIKE '%SM%' THEN 0 WHEN p_container LIKE '%MED%' THEN 1 WHEN p_container LIKE '%LG%' THEN 2 ELSE 3 END = 2",
+    "filter_type": "classifier_class",
+    "target_class": 2
+  }
+]

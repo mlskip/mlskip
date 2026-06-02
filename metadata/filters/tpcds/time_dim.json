@@ -1,0 +1,20 @@
+[
+  {
+    "name": "time_dim_hour_classifier",
+    "description": "Use the time-dimension hour classifier to identify noon-hour rows.",
+    "table": "time_dim",
+    "model_name": "time_dim_hour_classifier",
+    "sql_predicate": "CAST(t_hour AS INTEGER) = 12",
+    "filter_type": "classifier_class",
+    "target_class": 12
+  },
+  {
+    "name": "time_dim_day_part_classifier",
+    "description": "Use the time-dimension day-part classifier to identify afternoon rows.",
+    "table": "time_dim",
+    "model_name": "time_dim_day_part_classifier",
+    "sql_predicate": "CASE WHEN t_hour < 6 THEN 0 WHEN t_hour < 12 THEN 1 WHEN t_hour < 18 THEN 2 ELSE 3 END = 2",
+    "filter_type": "classifier_class",
+    "target_class": 2
+  }
+]

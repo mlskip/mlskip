@@ -1,0 +1,36 @@
+metadata/compiled-models
+metadata/filters/tpcds/generated/
+metadata/filters/tpch/generated/
+metadata/models/tpcds/
+metadata/models/tpch/deep/
+metadata/models/tpch/shallow/
+
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# IDEs
+.vscode
+
+# Generated DuckDB caches
+.cache/duckdb/
+
+# Generated raw data files
+data/**/*.csv
+
+# Generated model artifacts
+metadata/models/**/*.onnx
+metadata/models/**/*.onnx.data
+metadata/models/**/*.metadata.json
+metadata/models/**/*.summary.json
+
+# Legacy experiment outputs
+artifacts/

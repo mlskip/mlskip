@@ -1,0 +1,17 @@
+[
+  {
+    "name": "supplier_balance_classifier",
+    "description": "Classifier that predicts a supplier balance band directly from account balance.",
+    "comment": "Included as a direct thresholding classifier where the target band is defined entirely by acctbal, making it a clean sanity-check classification task.",
+    "table": "supplier",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN s_acctbal < 0 THEN 0 WHEN s_acctbal < 3000 THEN 1 WHEN s_acctbal < 6000 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "acctbal",
+        "expression": "CAST(s_acctbal AS DOUBLE)"
+      }
+    ]
+  }
+]

@@ -1,0 +1,65 @@
+[
+  {
+    "name": "store_returns_net_loss",
+    "description": "Regressor that fits return net loss from return amount, tax, fee, and shipping cost.",
+    "comment": "Structured monetary regression over store-return measures where the target is not passed as an input.",
+    "table": "store_returns",
+    "task_type": "regressor",
+    "target_expression": "CAST(sr_net_loss AS DOUBLE)",
+    "features": [
+      {
+        "name": "return_amount",
+        "expression": "CAST(sr_return_amt AS DOUBLE)"
+      },
+      {
+        "name": "return_tax",
+        "expression": "CAST(sr_return_tax AS DOUBLE)"
+      },
+      {
+        "name": "fee",
+        "expression": "CAST(sr_fee AS DOUBLE)"
+      },
+      {
+        "name": "return_ship_cost",
+        "expression": "CAST(sr_return_ship_cost AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "store_returns_return_amount",
+    "description": "Three-input regressor that fits return amount from refunded cash, reversed charge, and store credit.",
+    "comment": "Included as a structured arithmetic regression task over the main store return reimbursement components, which should strongly explain the recorded return amount.",
+    "table": "store_returns",
+    "task_type": "regressor",
+    "target_expression": "CAST(sr_return_amt AS DOUBLE)",
+    "features": [
+      {
+        "name": "refunded_cash",
+        "expression": "CAST(sr_refunded_cash AS DOUBLE)"
+      },
+      {
+        "name": "reversed_charge",
+        "expression": "CAST(sr_reversed_charge AS DOUBLE)"
+      },
+      {
+        "name": "store_credit",
+        "expression": "CAST(sr_store_credit AS DOUBLE)"
+      }
+    ]
+  },
+  {
+    "name": "store_returns_fee_band_classifier",
+    "description": "Classifier that predicts a return-fee band directly from the fee amount.",
+    "comment": "Included as a direct thresholding classifier where the target band is defined entirely by sr_fee, making it a clean sanity-check classification task.",
+    "table": "store_returns",
+    "task_type": "classifier",
+    "num_classes": 4,
+    "target_expression": "CASE WHEN sr_fee < 10 THEN 0 WHEN sr_fee < 25 THEN 1 WHEN sr_fee < 50 THEN 2 ELSE 3 END",
+    "features": [
+      {
+        "name": "fee",
+        "expression": "CAST(sr_fee AS DOUBLE)"
+      }
+    ]
+  }
+]

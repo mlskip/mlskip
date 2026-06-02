@@ -1,0 +1,20 @@
+[
+  {
+    "name": "item_price_band_classifier",
+    "description": "Use the item price-band classifier to identify rows in the high current-price bucket.",
+    "table": "item",
+    "model_name": "item_price_band_classifier",
+    "sql_predicate": "CASE WHEN i_current_price < 20 THEN 0 WHEN i_current_price < 50 THEN 1 WHEN i_current_price < 100 THEN 2 ELSE 3 END = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  },
+  {
+    "name": "item_manager_classifier",
+    "description": "Use the item manager classifier to identify rows assigned to manager class 42.",
+    "table": "item",
+    "model_name": "item_manager_classifier",
+    "sql_predicate": "CAST(i_manager_id AS INTEGER) = 42",
+    "filter_type": "classifier_class",
+    "target_class": 42
+  }
+]

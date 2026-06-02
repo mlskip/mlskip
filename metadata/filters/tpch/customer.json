@@ -1,0 +1,11 @@
+[
+  {
+    "name": "customer_segment_classifier",
+    "description": "Use the proxy-label customer classifier to identify rows predicted as HOUSEHOLD class.",
+    "table": "customer",
+    "model_name": "customer_segment_classifier",
+    "sql_predicate": "CASE c_mktsegment WHEN 'AUTOMOBILE' THEN 0 WHEN 'BUILDING' THEN 1 WHEN 'FURNITURE' THEN 2 WHEN 'HOUSEHOLD' THEN 3 ELSE 4 END = 3",
+    "filter_type": "classifier_class",
+    "target_class": 3
+  }
+]
