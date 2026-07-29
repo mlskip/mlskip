@@ -227,6 +227,9 @@ export/<database>/<model-kind>/bs<block-size>/
   <table>/
     <model>/
       <metadata-kind>-metadata.json
+      filters/
+        <filter>/
+          ground-truth.json
 ```
 
 Each `<metadata-kind>-metadata.json` contains:
@@ -234,6 +237,10 @@ Each `<metadata-kind>-metadata.json` contains:
 - `feature_columns`: the model input columns used to build the metadata
 - `metadata_kind`: the exported block metadata kind
 - `blocks`: one record per block with `block_id`, row range, row count, and `metadata`
+
+Each per-filter `ground-truth.json` contains the filter definition, a
+`ground_truth_summary`, and one per-block `matching_rows` count. It is
+independent of the selected block metadata kind.
 
 For `--block-metadata minmax`, each block's `metadata.input_bounds` contains the per-feature min/max bounds. For `grid`, `convex_hull`, or `bounded_convex_hull`, each block also includes the corresponding `metadata.pair_geometries` payload.
 

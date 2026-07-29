@@ -59,6 +59,88 @@ def test_default_generated_filter_paths_are_grouped_per_template() -> None:
     assert paths["discounted_price_band"].name.startswith("discounted_price_band__")
 
 
+def test_cleanup_stale_generated_filter_specs_removes_old_hash_siblings(tmp_path: Path) -> None:
+    current = tmp_path / "discounted_price__a2__n10__s0__current.json"
+    stale = tmp_path / "discounted_price__a2__n10__s0__stale.json"
+    stale_cache = tmp_path / "discounted_price__a2__n10__s0__stale__model_ground_truth.duckdb"
+    orphan_cache = tmp_path / "discounted_price__a2__n10__s0__orphan__model_ground_truth.duckdb"
+    unrelated = tmp_path / "charge__a2__n10__s0__stale.json"
+    current.write_text("[]\n")
+    stale.write_text("[]\n")
+    stale_cache.write_text("cache")
+    orphan_cache.write_text("cache")
+    unrelated.write_text("[]\n")
+
+    bench._cleanup_stale_generated_filter_specs([current])
+
+    assert current.exists()
+    assert not stale.exists()
+    assert not stale_cache.exists()
+    assert not orphan_cache.exists()
+    assert unrelated.exists()
+
+
+def test_resolve_filter_specs_reuses_generated_filters_for_export(tmp_path: Path) -> None:
+    requested = FilterSpec(
+        name="discounted_price",
+        description="template",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="TRUE",
+        filter_type="regressor_range",
+        template_name="discounted_price",
+    )
+    generated = FilterSpec(
+        name="discounted_price_w01_s00_0_2",
+        description="generated",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="x BETWEEN 0 AND 2",
+        filter_type="regressor_range",
+        sampled_width=2.0,
+        sampled_start=0.0,
+        template_name="discounted_price",
+    )
+    generated_path = tmp_path / "discounted_price__a2__n10__s0__hash.json"
+    write_filter_specs(generated_path, [generated])
+
+    class _Args:
+        pass
+
+    args = _Args()
+    args.database = "tpch"
+    args.filters = None
+    args.filters_path = None
+    args.export = tmp_path
+    args.task_type = "regressor"
+    args.range_alpha = 2.0
+    args.range_start_samples = 10
+    args.range_seed = 0
+
+    original_get_filter_specs = bench.get_filter_specs
+    original_default_paths = bench._default_generated_filters_paths
+    try:
+        def fake_get_filter_specs(database, selected_names, path=None):
+            if path is None:
+                return [requested]
+            return original_get_filter_specs(database, selected_names, path)
+
+        bench.get_filter_specs = fake_get_filter_specs
+        bench._default_generated_filters_paths = lambda **kwargs: {
+            "discounted_price": generated_path
+        }
+
+        resolved, source = bench._resolve_filter_specs(args=args)
+    finally:
+        bench.get_filter_specs = original_get_filter_specs
+        bench._default_generated_filters_paths = original_default_paths
+
+    assert source == (generated_path,)
+    assert [spec.name for spec in resolved] == ["discounted_price_w01_s00_0_2"]
+
+
 def test_regressor_sampling_respects_total_budget_and_per_width_floor() -> None:
     template = FilterSpec(
         name="template",
