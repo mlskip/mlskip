@@ -411,7 +411,12 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
         )
         selected_filter_index = args.filter_id
         filters = [filters[args.filter_id - 1]]
-    if args.export is not None and not args.prepare_filters_only and args.block_id is None:
+    if args.export is not None and not args.prepare_filters_only:
+        if args.block_id is not None:
+            raise ValueError(
+                "--export does not support --block-id. "
+                "Use --block-id without --export for block inspection."
+            )
         export_jobs = _prepare_benchmark_jobs(
             args=args,
             db_path=db_path,
@@ -421,6 +426,13 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
             filters=filters,
             model_specs=model_specs,
         )
+        if args.filter_id is not None:
+            if args.filter_id > len(export_jobs):
+                raise ValueError(
+                    f"--filter-id={args.filter_id} is out of range; "
+                    f"there are {len(export_jobs)} prepared filter(s)."
+                )
+            export_jobs = [export_jobs[args.filter_id - 1]]
         expanded_filters = [job.filter_spec for job in export_jobs]
         auto_generated_filter_paths = _default_generated_filters_paths(
             database=args.database,
@@ -4031,11 +4043,6 @@ def _export_ground_truth_matches_cache(path: Path, cache_key: str) -> bool:
     except (OSError, json.JSONDecodeError):
         return False
     return payload.get("model_ground_truth_cache_key") == cache_key
-
-
-def _export_row_metadata_kind(row: dict) -> str:
-    metadata = row.get("metadata") or row.get("block_metadata") or {}
-    return str(row.get("metadata_kind") or metadata.get("kind") or "metadata")
 
 
 def _metadata_export_block(row: dict) -> dict:

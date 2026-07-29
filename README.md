@@ -211,6 +211,12 @@ rule exactly.
 uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --max-rows-total 50000 --export
 ```
 
+There is also a dedicated helper script for the common regressor export flow:
+
+```sh
+./scripts/export_regressor_block_metadata.sh
+```
+
 If you pass `--export` without a path, exports are written under `export/`.
 You can also provide a custom directory:
 

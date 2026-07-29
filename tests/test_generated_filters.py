@@ -3,13 +3,16 @@ from __future__ import annotations
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import bench
 from nnv_tools.block_metadata import PairGeometry
 from nnv_tools.filter_catalog import FilterSpec, get_filter_specs, write_filter_specs
-from nnv_tools.function_catalog import FunctionSpec
+from nnv_tools.function_catalog import FeatureSpec, FunctionSpec
 
 
 def test_get_filter_specs_loads_multiple_generated_files(tmp_path: Path) -> None:
@@ -139,6 +142,181 @@ def test_resolve_filter_specs_reuses_generated_filters_for_export(tmp_path: Path
 
     assert source == (generated_path,)
     assert [spec.name for spec in resolved] == ["discounted_price_w01_s00_0_2"]
+
+
+def test_export_rejects_block_inspection_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "db.duckdb"
+    db_path.write_text("")
+    filter_spec = FilterSpec(
+        name="discounted_price",
+        description="template",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="TRUE",
+        filter_type="regressor_range",
+        template_name="discounted_price",
+    )
+    model_spec = FunctionSpec(
+        name="discounted_price",
+        description="model",
+        database="tpch",
+        table="lineitem",
+        task_type="regressor",
+        target_expression="x",
+        features=[FeatureSpec(name="x", expression="x")],
+    )
+    monkeypatch.setattr(
+        bench,
+        "load_database_setup",
+        lambda database: SimpleNamespace(
+            duckdb_file=db_path,
+            training_row_count=0,
+            training_block_count=lambda block_size: 0,
+        ),
+    )
+    monkeypatch.setattr(bench, "_resolve_filter_specs", lambda *, args: ([filter_spec], None))
+    monkeypatch.setattr(bench, "get_function_specs", lambda database, names, path: [model_spec])
+
+    args = SimpleNamespace(
+        export=tmp_path / "export",
+        disable_skipping=True,
+        jobs=1,
+        verifier_timeout_seconds=0.0,
+        batched_geomcad=False,
+        verifier_backend="marabou",
+        range_alpha=2.0,
+        range_start_samples=10,
+        max_rows_total=None,
+        filter_id=None,
+        grid_depth=None,
+        db_path=None,
+        database="tpch",
+        block_size=1000,
+        task_type="regressor",
+        prepare_filters_only=False,
+        filters_path=None,
+        filters=None,
+        model_kind="shallow",
+        block_id=7,
+        range_seed=0,
+        block_metadata=None,
+    )
+
+    with pytest.raises(ValueError, match="--export does not support --block-id"):
+        bench.run_benchmarks(args)
+
+
+def test_export_filter_id_selects_expanded_job(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db_path = tmp_path / "db.duckdb"
+    db_path.write_text("")
+    template_filter = FilterSpec(
+        name="discounted_price",
+        description="template",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="TRUE",
+        filter_type="regressor_range",
+        template_name="discounted_price",
+    )
+    expanded_a = FilterSpec(
+        name="discounted_price_w01",
+        description="expanded-a",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="x BETWEEN 0 AND 1",
+        filter_type="regressor_range",
+        template_name="discounted_price",
+    )
+    expanded_b = FilterSpec(
+        name="discounted_price_w02",
+        description="expanded-b",
+        database="tpch",
+        table="lineitem",
+        model_name="discounted_price",
+        sql_predicate="x BETWEEN 1 AND 2",
+        filter_type="regressor_range",
+        template_name="discounted_price",
+    )
+    model_spec = FunctionSpec(
+        name="discounted_price",
+        description="model",
+        database="tpch",
+        table="lineitem",
+        task_type="regressor",
+        target_expression="x",
+        features=[FeatureSpec(name="x", expression="x")],
+    )
+    monkeypatch.setattr(
+        bench,
+        "load_database_setup",
+        lambda database: SimpleNamespace(
+            duckdb_file=db_path,
+            training_row_count=0,
+            training_block_count=lambda block_size: 0,
+        ),
+    )
+    monkeypatch.setattr(bench, "_resolve_filter_specs", lambda *, args: ([template_filter], None))
+    monkeypatch.setattr(bench, "get_function_specs", lambda database, names, path: [model_spec])
+    monkeypatch.setattr(bench, "_default_generated_filters_paths", lambda **kwargs: {})
+    monkeypatch.setattr(bench, "_write_grouped_filter_specs", lambda paths, specs: None)
+
+    export_jobs = [
+        bench.BenchmarkJob(
+            filter_id=1,
+            filter_spec=expanded_a,
+            model_spec=model_spec,
+            model_path=tmp_path / "model.onnx",
+            block_ids=[0],
+            excluded_training_blocks=0,
+        ),
+        bench.BenchmarkJob(
+            filter_id=2,
+            filter_spec=expanded_b,
+            model_spec=model_spec,
+            model_path=tmp_path / "model.onnx",
+            block_ids=[1],
+            excluded_training_blocks=0,
+        ),
+    ]
+    monkeypatch.setattr(bench, "_prepare_benchmark_jobs", lambda **kwargs: export_jobs)
+    captured: dict[str, object] = {}
+
+    def fake_run_export_only(**kwargs):
+        captured["jobs"] = kwargs["jobs"]
+        return tmp_path / "export"
+
+    monkeypatch.setattr(bench, "_run_export_only", fake_run_export_only)
+
+    args = SimpleNamespace(
+        export=tmp_path / "export",
+        disable_skipping=True,
+        jobs=1,
+        verifier_timeout_seconds=0.0,
+        batched_geomcad=False,
+        verifier_backend="marabou",
+        range_alpha=2.0,
+        range_start_samples=10,
+        max_rows_total=None,
+        filter_id=2,
+        grid_depth=None,
+        db_path=None,
+        database="tpch",
+        block_size=1000,
+        task_type="regressor",
+        prepare_filters_only=False,
+        filters_path=None,
+        filters=None,
+        model_kind="shallow",
+        block_id=None,
+        range_seed=0,
+        block_metadata=None,
+    )
+
+    assert bench.run_benchmarks(args) == []
+    assert [job.filter_spec.name for job in captured["jobs"]] == ["discounted_price_w02"]
 
 
 def test_regressor_sampling_respects_total_budget_and_per_width_floor() -> None:
