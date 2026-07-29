@@ -350,7 +350,7 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
     if not db_path.exists():
         raise FileNotFoundError(
             "Benchmark database is not set up. Expected DuckDB file at "
-            f"'{db_path}'. Run `bash scripts/setup_database.sh {args.database}` first."
+            f"'{db_path}'. Run `bash scripts/setup-database.sh {args.database}` first."
         )
     block_size = args.block_size
     if block_size <= 0:
@@ -1184,7 +1184,7 @@ def _validate_geomcad_jobs(*, jobs: list[BenchmarkJob], database: str) -> list[B
     print(
         "[bench] Skipping GeomCAD jobs with missing compiled models under "
         f"{compiled_models_dir(database)}: removed {removed_jobs} job(s) across "
-        f"{len(missing_artifacts)} model(s). Run `scripts/compile_geomcad_models.sh {database}` "
+        f"{len(missing_artifacts)} model(s). Run `scripts/compile-geomcad-models.sh {database}` "
         "to include them.\n"
         f"{preview}{suffix}"
     )

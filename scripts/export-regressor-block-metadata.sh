@@ -4,8 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# shellcheck source=scripts/lib/resolve_uv.sh
-source "$SCRIPT_DIR/lib/resolve_uv.sh"
+# shellcheck source=scripts/lib/resolve-uv.sh
+source "$SCRIPT_DIR/lib/resolve-uv.sh"
 
 DATABASES="tpch,tpcds"
 MODEL_KINDS="shallow,deep"
@@ -17,7 +17,7 @@ EXPORT_ROOT="export"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/export_regressor_block_metadata.sh [options]
+Usage: scripts/export-regressor-block-metadata.sh [options]
 
 Export per-block metadata for regressor models across:
 - databases

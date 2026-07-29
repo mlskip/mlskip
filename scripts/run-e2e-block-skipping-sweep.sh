@@ -19,7 +19,7 @@ DRY_RUN="0"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_e2e_block_skipping_sweep.sh [options]
+Usage: scripts/run-e2e-block-skipping-sweep.sh [options]
 
 Run `bench.py` for end-to-end block-skipping with per-block PyTorch execution
 across the cross product of:

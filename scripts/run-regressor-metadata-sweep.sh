@@ -17,7 +17,7 @@ BATCHED_GEOMCAD="0"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_regressor_metadata_sweep.sh [options]
+Usage: scripts/run-regressor-metadata-sweep.sh [options]
 
 Run `bench.py` for the regressor task across the cross product of:
 - databases

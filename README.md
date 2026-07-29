@@ -12,6 +12,16 @@ uv sync
 
 Requires python 3.11 (mainly because of Marabou)
 
+Prepare both built-in benchmark databases and train both shallow/deep model
+families with:
+
+```sh
+scripts/setup-benchmarks.sh
+```
+
+Use flags such as `--databases tpch`, `--model-kinds deep`, or
+`--force-retrain` to narrow or rebuild the setup.
+
 ## Structure
 
 - `nnv-tools`: code related to using NNV tools within DuckDB
@@ -43,13 +53,13 @@ The data setup step should be done once per database. It prepares CSV files unde
 For TPCH:
 
 ```sh
-bash scripts/setup_database.sh tpch
+bash scripts/setup-database.sh tpch
 ```
 
 For TPC-DS:
 
 ```sh
-bash scripts/setup_database.sh tpcds
+bash scripts/setup-database.sh tpcds
 ```
 
 This step:
@@ -61,7 +71,7 @@ This step:
 You can rebuild the preprocessing outputs with:
 
 ```sh
-bash scripts/setup_database.sh <database> --force-csv --force-duckdb
+bash scripts/setup-database.sh <database> --force-csv --force-duckdb
 ```
 
 ## 2. Models Setup
@@ -146,13 +156,13 @@ targets the `shallow` models. Compile all shallow regressor models for a
 database with:
 
 ```sh
-scripts/compile_geomcad_models.sh tpch
+scripts/compile-geomcad-models.sh tpch
 ```
 
 To compile exactly one model:
 
 ```sh
-scripts/compile_geomcad_models.sh --model metadata/models/tpcds/shallow/regressor/catalog_sales/catalog_sales_net_paid/catalog_sales_net_paid.onnx
+scripts/compile-geomcad-models.sh --model metadata/models/tpcds/shallow/regressor/catalog_sales/catalog_sales_net_paid/catalog_sales_net_paid.onnx
 ```
 
 Use `--force` to rebuild existing compiled artifacts.
@@ -214,7 +224,7 @@ uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --
 There is also a dedicated helper script for the common regressor export flow:
 
 ```sh
-./scripts/export_regressor_block_metadata.sh
+./scripts/export-regressor-block-metadata.sh
 ```
 
 If you pass `--export` without a path, exports are written under `export/`.

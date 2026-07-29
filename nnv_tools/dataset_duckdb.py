@@ -52,7 +52,7 @@ def ensure_dataset_loaded(
         return
     raise FileNotFoundError(
         f"Table '{spec.table}' is missing in the DuckDB cache for database "
-        f"'{spec.database}'. Run `scripts/setup_database.sh {spec.database}` first."
+        f"'{spec.database}'. Run `scripts/setup-database.sh {spec.database}` first."
     )
 
 
@@ -489,7 +489,7 @@ def ensure_row_id_column(
         if min_row_id != 0:
             raise AssertionError(
                 f"Expected 0-based row_id in table '{table_name}', found min(row_id)={min_row_id}. "
-                "Rebuild the DuckDB cache with setup_database.sh."
+                "Rebuild the DuckDB cache with setup-database.sh."
             )
         return
 
