@@ -1,3 +1,5 @@
+export
+
 metadata/compiled-models
 metadata/filters/tpcds/generated/
 metadata/filters/tpch/generated/

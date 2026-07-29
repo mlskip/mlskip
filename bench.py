@@ -1613,9 +1613,8 @@ def _run_jobs_serially(
     grid_depth: int | None,
     metadata_bundles: dict[tuple[str, tuple[int, ...], str, int], BlockMetadataBundle],
     model_ground_truth_caches: dict[int, ModelGroundTruthCache],
-) -> tuple[list[dict], list[dict]]:
+) -> list[dict]:
     results: list[dict] = []
-    export_rows: list[dict] = []
     total_jobs = len(jobs)
     for job_index, job in enumerate(jobs):
         kind = _resolve_block_metadata_kind(cli_block_metadata, job.filter_spec)
@@ -1630,7 +1629,7 @@ def _run_jobs_serially(
         )
         if job_index > 0:
             print()
-        result, block_evaluations = _run_benchmark_job(
+        result, _block_evaluations = _run_benchmark_job(
             job=job,
             db_path=db_path,
             block_size=block_size,
@@ -1648,17 +1647,10 @@ def _run_jobs_serially(
             show_progress=True,
             progress_queue=None,
             model_ground_truth=model_ground_truth_caches[job.filter_id],
-            capture_evaluations=True,
+            capture_evaluations=False,
         )
         results.append(asdict(result))
-        export_rows.extend(_build_export_rows(job, block_evaluations))
-        if block_evaluations:
-            print(
-                f"[bench] Export capture {job_index + 1}/{total_jobs}: "
-                f"table={job.filter_spec.table} model={job.model_spec.name} "
-                f"blocks={len(block_evaluations)}"
-            )
-    return results, export_rows
+    return results
 
 
 def _run_jobs_in_parallel(
@@ -1677,11 +1669,10 @@ def _run_jobs_in_parallel(
     max_workers: int,
     metadata_bundles: dict[tuple[str, tuple[int, ...], str, int], BlockMetadataBundle],
     model_ground_truth_caches: dict[int, ModelGroundTruthCache],
-) -> tuple[list[dict], list[dict]]:
+) -> list[dict]:
     total_jobs = len(jobs)
     max_workers = min(max_workers, total_jobs) if total_jobs else max_workers
     completed_results: dict[int, dict] = {}
-    completed_export_rows: dict[int, list[dict]] = {}
     progress_states: dict[int, ProgressState] = {}
     last_progress_render_at = 0.0
     with multiprocessing.Manager() as manager:
@@ -1716,7 +1707,7 @@ def _run_jobs_in_parallel(
                         metadata_bundle=metadata_bundles.get(cache_key),
                         progress_queue=progress_queue,
                         model_ground_truth=model_ground_truth_caches[job.filter_id],
-                        capture_evaluations=True,
+                        capture_evaluations=False,
                     )
                 ] = job_index
             pending = set(future_to_index)
@@ -1732,7 +1723,7 @@ def _run_jobs_in_parallel(
                     if _render_parallel_progress(progress_states):
                         last_progress_render_at = now
                 for future in done:
-                    job_index, result_dict, export_rows, _logs = future.result()
+                    job_index, result_dict, _logs = future.result()
                     _mark_progress_done(
                         progress_states,
                         job_index,
@@ -1743,25 +1734,10 @@ def _run_jobs_in_parallel(
                     if _render_parallel_progress(progress_states, force=True):
                         last_progress_render_at = time.monotonic()
                     completed_results[job_index] = result_dict
-                    completed_export_rows[job_index] = export_rows
-                    if export_rows:
-                        job = jobs[job_index]
-                        print(
-                            f"[bench] Export capture {job_index + 1}/{total_jobs}: "
-                            f"table={job.filter_spec.table} model={job.model_spec.name} "
-                            f"blocks={len(export_rows)}"
-                        )
             _drain_progress_queue(progress_queue, progress_states)
     _clear_parallel_progress_render()
     ordered_indices = sorted(completed_results)
-    return (
-        [completed_results[index] for index in ordered_indices],
-        [
-            row
-            for index in ordered_indices
-            for row in completed_export_rows.get(index, [])
-        ],
-    )
+    return [completed_results[index] for index in ordered_indices]
 
 
 def _apply_block_budget(
@@ -1818,10 +1794,10 @@ def _run_benchmark_job_capture_logs(
     progress_queue: object | None,
     model_ground_truth: ModelGroundTruthCache,
     capture_evaluations: bool,
-) -> tuple[int, dict, list[dict], str]:
+) -> tuple[int, dict, str]:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        result, block_evaluations = _run_benchmark_job(
+        result, _block_evaluations = _run_benchmark_job(
             job=job,
             db_path=db_path,
             block_size=block_size,
@@ -1844,7 +1820,6 @@ def _run_benchmark_job_capture_logs(
     return (
         job_index,
         asdict(result),
-        _build_export_rows(job, block_evaluations),
         buffer.getvalue(),
     )
 
@@ -2016,21 +1991,6 @@ def _run_benchmark_job(
         error_blocks = skip_summary.error_blocks
         skipping_ms = skip_summary.skipping_ms
         block_evaluations = skip_summary.evaluations or []
-    elif capture_evaluations:
-        block_evaluations = _collect_export_evaluations_without_skipping(
-            filter_spec=filter_spec,
-            model_spec=model_spec,
-            db_path=db_path,
-            block_size=block_size,
-            model_path=job.model_path,
-            block_ids=benchmark_block_ids,
-            verifier_backend=verifier_backend,
-            verifier_timeout_seconds=verifier_timeout_seconds,
-            metadata_kind=metadata_kind,
-            grid_depth=grid_depth,
-            metadata_bundle=metadata_bundle,
-            model_ground_truth=model_ground_truth,
-        )
     scanned_rows = count_rows_for_blocks(
         filter_spec.table,
         kept_blocks,
@@ -3709,43 +3669,6 @@ def _build_results_payload(
     return payload
 
 
-def _build_export_rows(
-    job: BenchmarkJob,
-    evaluations: list[BlockEvaluation],
-) -> list[dict]:
-    rows: list[dict] = []
-    filter_spec = job.filter_spec
-    model_spec = job.model_spec
-    for evaluation in evaluations:
-        rows.append(
-            {
-                "table": filter_spec.table,
-                "model_name": model_spec.name,
-                "model_task_type": model_spec.task_type,
-                "filter_name": filter_spec.name,
-                "filter_template_name": (filter_spec.template_name or filter_spec.name),
-                "filter_type": filter_spec.filter_type,
-                "sql_predicate": filter_spec.sql_predicate,
-                "feature_columns": [feature.name for feature in model_spec.features],
-                "block_id": evaluation.block_id,
-                "row_id_start": evaluation.row_id_start,
-                "row_id_end": evaluation.row_id_end,
-                "block_row_count": evaluation.block_row_count,
-                "matching_rows": evaluation.matching_rows,
-                "feature_bounds": evaluation.feature_bounds,
-                "block_metadata": (
-                    None if evaluation.block_metadata is None else asdict(evaluation.block_metadata)
-                ),
-                "metadata_kind": (
-                    None
-                    if evaluation.block_metadata is None
-                    else evaluation.block_metadata.kind
-                ),
-            }
-        )
-    return rows
-
-
 def _build_export_rows_from_metadata_bundle(
     job: BenchmarkJob,
     bundle: BlockMetadataBundle,
@@ -3959,59 +3882,6 @@ def _write_export_ground_truth_for_job(
     )
 
 
-def _collect_export_evaluations_without_skipping(
-    *,
-    filter_spec: FilterSpec,
-    model_spec: FunctionSpec,
-    db_path: Path,
-    block_size: int,
-    model_path: Path,
-    block_ids: list[int],
-    verifier_backend: str,
-    verifier_timeout_seconds: float,
-    metadata_kind: str,
-    grid_depth: int,
-    metadata_bundle: BlockMetadataBundle | None,
-    model_ground_truth: ModelGroundTruthCache,
-) -> list[BlockEvaluation]:
-    evaluations: list[BlockEvaluation] = []
-    metadata_by_block = (
-        {} if metadata_bundle is None else metadata_bundle.metadata_by_block
-    )
-    block_feature_con = None
-    if verifier_backend == "pytorch":
-        block_feature_con = duckdb.connect(str(db_path), read_only=True)
-    try:
-        for block_id in block_ids:
-            metadata = metadata_by_block.get(block_id)
-            evaluations.append(
-                _evaluate_block(
-                    db_path=db_path,
-                    block_size=block_size,
-                    filter_spec=filter_spec,
-                    model_spec=model_spec,
-                    model_path=model_path,
-                    block_id=block_id,
-                    bounds=(None if metadata is None else metadata.input_bounds),
-                    block_metadata=metadata,
-                    disable_skipping=True,
-                    run_udf=False,
-                    verifier_backend=verifier_backend,
-                    verifier_timeout_seconds=verifier_timeout_seconds,
-                    metadata_kind=metadata_kind,
-                    grid_depth=grid_depth,
-                    include_counts=True,
-                    verbose=False,
-                    model_ground_truth=model_ground_truth,
-                    block_feature_con=block_feature_con,
-                )
-            )
-    finally:
-        if block_feature_con is not None:
-            block_feature_con.close()
-    return evaluations
-
-
 def _export_benchmark_dir(
     args: argparse.Namespace,
     jobs: list[BenchmarkJob],
@@ -4023,62 +3893,6 @@ def _export_benchmark_dir(
     label = f"bs{args.block_size}"
     benchmark_dir = (args.export or Path("export")) / args.database / args.model_kind / label
     args._export_benchmark_dir = benchmark_dir
-    return benchmark_dir
-
-
-def _write_export_payload(
-    args: argparse.Namespace,
-    jobs: list[BenchmarkJob],
-    results: list[dict],
-    export_rows: list[dict],
-) -> Path:
-    del results
-    benchmark_dir = _export_benchmark_dir(args, jobs)
-    benchmark_dir.mkdir(parents=True, exist_ok=True)
-    print(f"[bench] Writing export payload into {benchmark_dir}")
-
-    metadata_rows: dict[tuple[str, str, str], list[dict]] = {}
-    filter_rows: dict[tuple[str, str, str], list[dict]] = {}
-    for row in export_rows:
-        table = str(row["_export_table"] if "_export_table" in row else row["table"])
-        model_name = str(
-            row["_export_model_name"] if "_export_model_name" in row else row["model_name"]
-        )
-        metadata_kind = _export_row_metadata_kind(row)
-        if "filter_name" in row:
-            filter_name = str(row["filter_name"])
-            filter_rows.setdefault((table, model_name, filter_name), []).append(row)
-        else:
-            metadata_rows.setdefault((table, model_name, metadata_kind), []).append(row)
-
-    jobs_by_filter = {
-        (job.filter_spec.table, job.model_spec.name, job.filter_spec.name): job
-        for job in jobs
-    }
-    jobs_by_model = {
-        (job.filter_spec.table, job.model_spec.name): job
-        for job in jobs
-    }
-
-    for (table, model_name, metadata_kind), rows in sorted(metadata_rows.items()):
-        job = jobs_by_model[(table, model_name)]
-        _write_export_metadata_file(
-            benchmark_dir=benchmark_dir,
-            args=args,
-            job=job,
-            rows=rows,
-            metadata_kind=metadata_kind,
-        )
-
-    for (table, model_name, filter_name), rows in sorted(filter_rows.items()):
-        job = jobs_by_filter[(table, model_name, filter_name)]
-        _write_export_ground_truth_file(
-            benchmark_dir=benchmark_dir,
-            args=args,
-            job=job,
-            rows=rows,
-            model_ground_truth=None,
-        )
     return benchmark_dir
 
 

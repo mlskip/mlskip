@@ -266,7 +266,7 @@ def test_resolve_export_grid_depth_uses_block_metadata_geometry() -> None:
     assert _resolve_export_grid_depth(blocks, "bounded_convex_hull") == 4
 
 
-def test_write_export_payload_splits_metadata_from_filter_ground_truth(tmp_path: Path) -> None:
+def test_export_writers_split_metadata_from_filter_ground_truth(tmp_path: Path) -> None:
     class _Args:
         pass
 
@@ -328,11 +328,12 @@ def test_write_export_payload_splits_metadata_from_filter_ground_truth(tmp_path:
         ),
     ]
 
-    export_dir = _BENCH._write_export_payload(
-        args,
-        jobs,
-        [],
-        [
+    export_dir = _BENCH._export_benchmark_dir(args, jobs)
+    metadata_path = _BENCH._write_export_metadata_file(
+        benchmark_dir=export_dir,
+        args=args,
+        job=jobs[0],
+        rows=[
             {
                 "block_id": 0,
                 "_export_table": "lineitem",
@@ -341,7 +342,15 @@ def test_write_export_payload_splits_metadata_from_filter_ground_truth(tmp_path:
                 "row_id_end": 999,
                 "row_count": 1000,
                 "metadata": {"kind": "minmax", "input_bounds": {"x": [0.0, 1.0]}, "pair_geometries": []},
-            },
+            }
+        ],
+        metadata_kind="minmax",
+    )
+    _BENCH._write_export_ground_truth_file(
+        benchmark_dir=export_dir,
+        args=args,
+        job=jobs[0],
+        rows=[
             {
                 "table": "lineitem",
                 "model_name": "charge",
@@ -356,7 +365,15 @@ def test_write_export_payload_splits_metadata_from_filter_ground_truth(tmp_path:
                 "row_id_end": 999,
                 "block_row_count": 1000,
                 "matching_rows": 7,
-            },
+            }
+        ],
+        model_ground_truth=None,
+    )
+    _BENCH._write_export_ground_truth_file(
+        benchmark_dir=export_dir,
+        args=args,
+        job=jobs[1],
+        rows=[
             {
                 "table": "lineitem",
                 "model_name": "charge",
@@ -371,12 +388,12 @@ def test_write_export_payload_splits_metadata_from_filter_ground_truth(tmp_path:
                 "row_id_end": 999,
                 "block_row_count": 1000,
                 "matching_rows": 3,
-            },
+            }
         ],
+        model_ground_truth=None,
     )
 
     assert export_dir == tmp_path / "tpch" / "shallow" / "bs1000"
-    metadata_path = export_dir / "lineitem" / "charge" / "minmax-metadata.json"
     low_path = export_dir / "lineitem" / "charge" / "filters" / "charge_low" / "ground-truth.json"
     high_path = export_dir / "lineitem" / "charge" / "filters" / "charge_high" / "ground-truth.json"
     assert metadata_path.exists()
