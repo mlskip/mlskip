@@ -69,7 +69,7 @@ bash scripts/setup_database.sh <database> --force-csv --force-duckdb
 After preprocessing, train or reuse models with:
 
 ```sh
-uv run python train.py --database tpch
+uv run python train.py --database tpch --model-kind shallow
 ```
 
 This step:
@@ -88,7 +88,7 @@ replacements for the original SQL expression.
 For a single function:
 
 ```sh
-uv run python train.py --database tpch --function discounted_price
+uv run python train.py --database tpch --model-kind shallow --function discounted_price
 ```
 
 ## 3. Benchmarks
@@ -102,20 +102,20 @@ Each filter points at a trained model and specifies either:
 Run benchmarks with:
 
 ```sh
-uv run python bench.py --database tpch --block-size 1000 --max-rows-total 50000
+uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --max-rows-total 50000
 ```
 
 For a single filter:
 
 ```sh
-uv run python bench.py --database tpch --block-size 1000 --max-rows-total 50000 --filter discounted_price_band
+uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --max-rows-total 50000 --filter discounted_price
 ```
 
 To run only one model family:
 
 ```sh
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --task-type regressor
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --task-type classifier
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --task-type regressor
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --task-type classifier
 ```
 
 This step:
@@ -170,10 +170,10 @@ uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 -
 `bench.py` can build different per-block metadata before verifier checks:
 
 ```sh
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --block-metadata minmax
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --block-metadata convex_hull
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --block-metadata grid --grid-depth 4
-uv run python bench.py --database tpcds --block-size 1000 --max-rows-total 50000 --block-metadata bounded_convex_hull --grid-depth 4
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --block-metadata minmax
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --block-metadata convex_hull
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --block-metadata grid --grid-depth 4
+uv run python bench.py --database tpcds --model-kind shallow --block-size 1000 --max-rows-total 50000 --block-metadata bounded_convex_hull --grid-depth 4
 ```
 
 Supported metadata kinds:
@@ -187,7 +187,7 @@ If `--block-metadata` is omitted, `bench.py` first looks for a filter-level defa
 
 ```json
 {
-  "name": "discounted_price_band",
+  "name": "discounted_price",
   "block_metadata": {
     "kind": "bounded_convex_hull",
     "grid_depth": 4
@@ -203,10 +203,44 @@ For proxy-label models, benchmark results should be interpreted as predictive ac
 against the held-out SQL labels rather than proof that the model encodes the underlying
 rule exactly.
 
-## Notes
+## 4. Export
 
-By default `train.py` runs the `tpch` setup. You can choose another database later with:
+`bench.py` can also export the block metadata itself to JSON:
 
 ```sh
-uv run python train.py --database tpcds
+uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --max-rows-total 50000 --export
+```
+
+If you pass `--export` without a path, exports are written under `export/`.
+You can also provide a custom directory:
+
+```sh
+uv run python bench.py --database tpch --model-kind shallow --block-size 1000 --max-rows-total 50000 --export tmp/bench-export
+```
+
+When `--export` is set, `bench.py` automatically disables verifier-driven skipping. This keeps export-only runs from requiring Marabou or other verifier backends.
+
+The export layout is benchmark-scoped first, then grouped by table and model:
+
+```text
+export/<database>/<model-kind>/bs<block-size>/
+  <table>/
+    <model>/
+      <metadata-kind>-metadata.json
+```
+
+Each `<metadata-kind>-metadata.json` contains:
+
+- `feature_columns`: the model input columns used to build the metadata
+- `metadata_kind`: the exported block metadata kind
+- `blocks`: one record per block with `block_id`, row range, row count, and `metadata`
+
+For `--block-metadata minmax`, each block's `metadata.input_bounds` contains the per-feature min/max bounds. For `grid`, `convex_hull`, or `bounded_convex_hull`, each block also includes the corresponding `metadata.pair_geometries` payload.
+
+## Notes
+
+`train.py` requires an explicit model kind. For example:
+
+```sh
+uv run python train.py --database tpcds --model-kind shallow
 ```

@@ -25,6 +25,7 @@ sys.modules[_SPEC.name] = _BENCH
 _SPEC.loader.exec_module(_BENCH)
 _metadata_size_summary = _BENCH._metadata_size_summary
 _build_results_payload = _BENCH._build_results_payload
+_resolve_export_grid_depth = _BENCH._resolve_export_grid_depth
 
 
 def test_metadata_size_summary_includes_collection_timing() -> None:
@@ -91,6 +92,7 @@ def test_build_results_payload_includes_pruning_summary_by_selectivity_group() -
 
     args = _Args()
     args._metadata_size_summary = None
+    args.measure_e2e = False
 
     payload = _build_results_payload(
         args,
@@ -160,9 +162,11 @@ def test_write_results_by_filter_uses_template_local_metadata_summary(tmp_path: 
     args.task_type = "regressor"
     args.max_rows_total = 100000
     args.run_udf = False
+    args.measure_e2e = False
     args.disable_skipping = False
     args.jobs = 20
     args.verifier_backend = "marabou"
+    args.batched_geomcad = False
     args.verifier_timeout_seconds = 1.0
     args.block_metadata = "minmax"
     args.grid_depth = None
@@ -230,3 +234,28 @@ def test_bounded_convex_hull_size_summary_excludes_exact_hull_bytes() -> None:
     assert summary["median_convex_hull_vertices_per_pair"] == 3.0
     assert summary["max_convex_hull_vertices_per_pair"] == 3
     assert summary["grid_depth"] == 4
+
+
+def test_resolve_export_grid_depth_uses_block_metadata_geometry() -> None:
+    blocks = [
+        {
+            "block_id": 2,
+            "metadata": {
+                "kind": "bounded_convex_hull",
+                "pair_geometries": [
+                    {
+                        "feature_x": "extendedprice",
+                        "feature_y": "discount",
+                        "grid_depth": 4,
+                        "bounded_convex_hull": [
+                            [0.0, 0.0],
+                            [1.0, 0.0],
+                            [1.0, 1.0],
+                        ],
+                    }
+                ],
+            },
+        }
+    ]
+
+    assert _resolve_export_grid_depth(blocks, "bounded_convex_hull") == 4
