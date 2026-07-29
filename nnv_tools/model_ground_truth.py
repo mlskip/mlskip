@@ -46,6 +46,23 @@ def model_ground_truth_cache_path(db_path: str | Path) -> Path:
     return source.with_name(f"{source.stem}__model_ground_truth.duckdb")
 
 
+def model_ground_truth_cache_key(
+    *,
+    filter_spec: FilterSpec,
+    model_spec: FunctionSpec,
+    model_path: str | Path,
+    block_ids: list[int],
+    block_size: int,
+) -> str:
+    return _cache_key(
+        filter_spec,
+        model_spec,
+        Path(model_path),
+        block_ids,
+        block_size,
+    )
+
+
 def ensure_model_ground_truth_cache(
     *,
     db_path: str | Path,
@@ -257,6 +274,31 @@ def count_model_matching_blocks(
             """,
             [cache_key],
         ).fetchone()[0])
+
+
+def count_model_qualified_rows_by_block(
+    cache_path: str | Path,
+    cache_key: str,
+    block_ids: list[int],
+    block_size: int,
+) -> dict[int, int]:
+    if not block_ids:
+        return {}
+    block_expression = f"CAST(FLOOR(row_id / {int(block_size)}) AS BIGINT)"
+    with duckdb.connect(str(cache_path), read_only=True) as con:
+        rows = con.execute(
+            f"""
+            SELECT {block_expression} AS block_id, COUNT(*) AS matching_rows
+            FROM filter_qualifications
+            WHERE cache_key = ?
+              AND qualifies
+              AND {block_expression} IN ({_int_list(block_ids)})
+            GROUP BY block_id
+            """,
+            [cache_key],
+        ).fetchall()
+    counts = {int(block_id): int(matching_rows) for block_id, matching_rows in rows}
+    return {int(block_id): counts.get(int(block_id), 0) for block_id in block_ids}
 
 
 def _load_predictions(

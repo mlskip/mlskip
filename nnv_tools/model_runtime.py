@@ -9,15 +9,12 @@ import warnings
 import numpy as np
 import onnx
 import onnxruntime as ort
-import torch
-from onnx2pytorch import ConvertModel
 
 from nnv_tools.function_catalog import FunctionSpec
 from nnv_tools.metadata_paths import models_dir
 
 
 ModelKind = Literal["shallow", "deep"]
-_PYTORCH_DEVICE = torch.device("cpu")
 
 
 def model_artifact_dir(
@@ -74,7 +71,22 @@ def _session_for_path(model_path: str) -> ort.InferenceSession:
 
 
 @lru_cache(maxsize=32)
-def _pytorch_model_for_path(model_path: str) -> torch.nn.Module:
+def _torch_module():
+    try:
+        import torch
+    except ImportError as exc:
+        raise RuntimeError(
+            "PyTorch is required only for the PyTorch prediction backend, but it could "
+            "not be imported. Use the ONNX path or reinstall the project environment."
+        ) from exc
+    return torch
+
+
+@lru_cache(maxsize=32)
+def _pytorch_model_for_path(model_path: str):
+    torch = _torch_module()
+    from onnx2pytorch import ConvertModel
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -87,7 +99,7 @@ def _pytorch_model_for_path(model_path: str) -> torch.nn.Module:
             category=UserWarning,
         )
         model = ConvertModel(onnx.load(model_path), experimental=True)
-    model.to(_PYTORCH_DEVICE)
+    model.to(torch.device("cpu"))
     model.eval()
     return model
 
@@ -134,9 +146,11 @@ def predict_array_pytorch(
     if inputs.ndim != 2:
         raise ValueError(f"Expected a 2D feature matrix, got shape={inputs.shape}.")
 
+    torch = _torch_module()
+    device = torch.device("cpu")
     model = _pytorch_model_for_path(str(model_path))
     with torch.no_grad():
-        output = model(torch.from_numpy(inputs).to(_PYTORCH_DEVICE)).detach().cpu().numpy()
+        output = model(torch.from_numpy(inputs).to(device)).detach().cpu().numpy()
 
     if spec.task_type == "classifier":
         return np.argmax(output, axis=1).astype(np.int64)

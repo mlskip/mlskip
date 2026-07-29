@@ -12,7 +12,6 @@ from nnv_tools.function_catalog import get_function_specs
 from nnv_tools.metadata_paths import functions_dir, models_dir
 from nnv_tools.model_runtime import ModelKind
 from nnv_tools.modeling import (
-    DEFAULT_MODEL_KIND,
     load_existing_training_artifacts,
     train_and_export_classifier,
 )
@@ -32,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model-kind",
         choices=["shallow", "deep"],
-        default=DEFAULT_MODEL_KIND,
+        required=True,
         help="Model architecture family to train and reuse.",
     )
     parser.add_argument("--force-retrain", action="store_true")

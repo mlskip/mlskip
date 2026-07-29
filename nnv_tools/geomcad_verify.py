@@ -10,7 +10,7 @@ Typical workflow:
 
 2. Compile the shallow regressor ONNX models into GeomCAD databases:
 
-  scripts/compile_geomcad_models.sh tpch
+  scripts/compile-geomcad-models.sh tpch
 
 3. Benchmark with GeomCAD:
 
@@ -995,7 +995,7 @@ def geomcad_compiled_model_path(onnx_path: str | Path) -> Path:
         raise FileNotFoundError(
             "geomcad requires a precompiled model database under metadata/compiled-models. "
             f"Missing artifact: {compiled_path}. "
-            "Run scripts/compile_geomcad_models.sh before benchmarking."
+            "Run scripts/compile-geomcad-models.sh before benchmarking."
         )
     return compiled_path
 

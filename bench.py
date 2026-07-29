@@ -14,6 +14,7 @@ import sys
 import time
 import statistics
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Callable
@@ -32,6 +33,7 @@ from nnv_tools.dataset_duckdb import (
     fetch_expression_range,
     list_block_ids,
     run_count_query,
+    ROW_ID_COLUMN,
 )
 from nnv_tools.filter_catalog import FilterSpec, get_filter_specs, write_filter_specs
 from nnv_tools.function_catalog import FunctionSpec, get_function_specs
@@ -54,7 +56,9 @@ from nnv_tools.model_ground_truth import (
     ModelGroundTruthCache,
     ModelGroundTruthRequest,
     count_model_qualified_rows,
+    count_model_qualified_rows_by_block,
     ensure_model_ground_truth_caches,
+    model_ground_truth_cache_key,
 )
 from nnv_tools.metadata_paths import (
     benchmark_results_dir,
@@ -148,6 +152,7 @@ class SkipSummary:
     timeout_blocks: int
     error_blocks: int
     skipping_ms: float
+    evaluations: list[BlockEvaluation] | None = None
 
 
 @dataclass(frozen=True)
@@ -177,7 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--model-kind",
         choices=["shallow", "deep"],
-        default="deep",
+        required=True,
         help="Model architecture family to benchmark.",
     )
     parser.add_argument("--filter", action="append", dest="filters")
@@ -306,10 +311,23 @@ def build_parser() -> argparse.ArgumentParser:
             "filter JSON block_metadata.grid_depth when present, otherwise 4."
         ),
     )
+    parser.add_argument(
+        "--export",
+        nargs="?",
+        const=Path("export"),
+        type=Path,
+        help=(
+            "Write per-block/per-table/per-filter metadata to JSON. "
+            "Pass a directory, or omit the value to default to export."
+        ),
+    )
     return parser
 
 
 def run_benchmarks(args: argparse.Namespace) -> list[dict]:
+    if args.export is not None and not args.disable_skipping:
+        args.disable_skipping = True
+        print("[bench] Export requested; automatically enabling --disable-skipping")
     if args.jobs <= 0:
         raise ValueError("--jobs must be positive.")
     if args.verifier_timeout_seconds < 0:
@@ -329,6 +347,11 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
 
     setup = load_database_setup(args.database)
     db_path = args.db_path if args.db_path is not None else setup.duckdb_file
+    if not db_path.exists():
+        raise FileNotFoundError(
+            "Benchmark database is not set up. Expected DuckDB file at "
+            f"'{db_path}'. Run `bash scripts/setup-database.sh {args.database}` first."
+        )
     block_size = args.block_size
     if block_size <= 0:
         raise ValueError("--block-size must be positive.")
@@ -370,6 +393,12 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
             f"{max_blocks_total} block(s), covering up to "
             f"{args.effective_max_rows_total} row(s) at block_size={block_size}"
         )
+    if args.export is not None:
+        export_root = args.export if args.export is not None else Path("export")
+        print(
+            f"[bench] Export capture enabled; benchmark-scoped metadata will be written under "
+            f"{export_root}"
+        )
 
     if (
         args.block_id is not None
@@ -379,9 +408,76 @@ def run_benchmarks(args: argparse.Namespace) -> list[dict]:
         if args.filter_id > len(filters):
             raise ValueError(
                 f"--filter-id={args.filter_id} is out of range; there are {len(filters)} loaded filter(s)."
-            )
+        )
         selected_filter_index = args.filter_id
         filters = [filters[args.filter_id - 1]]
+    if args.export is not None and not args.prepare_filters_only:
+        if args.block_id is not None:
+            raise ValueError(
+                "--export does not support --block-id. "
+                "Use --block-id without --export for block inspection."
+            )
+        export_jobs = _prepare_benchmark_jobs(
+            args=args,
+            db_path=db_path,
+            block_size=block_size,
+            training_blocks=training_blocks,
+            max_blocks_total=max_blocks_total,
+            filters=filters,
+            model_specs=model_specs,
+        )
+        if args.filter_id is not None:
+            if args.filter_id > len(export_jobs):
+                raise ValueError(
+                    f"--filter-id={args.filter_id} is out of range; "
+                    f"there are {len(export_jobs)} prepared filter(s)."
+                )
+            export_jobs = [export_jobs[args.filter_id - 1]]
+        expanded_filters = [job.filter_spec for job in export_jobs]
+        auto_generated_filter_paths = _default_generated_filters_paths(
+            database=args.database,
+            template_names=_selected_filter_template_names(expanded_filters, args.task_type),
+            range_alpha=args.range_alpha,
+            range_start_samples=args.range_start_samples,
+            range_seed=args.range_seed,
+            task_type=args.task_type,
+        )
+        if (
+            args.filters_path is None
+            and args.filter_id is None
+            and auto_generated_filter_paths
+            and (
+                resolved_filters_path is None
+                or any(not path.exists() for path in auto_generated_filter_paths.values())
+            )
+        ):
+            _write_grouped_filter_specs(auto_generated_filter_paths, expanded_filters)
+            print(
+                f"[bench] Cached {len(expanded_filters)} expanded filter(s) across "
+                f"{len(auto_generated_filter_paths)} template file(s) in "
+                f"{generated_filters_dir(args.database)}"
+            )
+        args._resolved_filters_path = resolved_filters_path
+        args._auto_generated_filter_paths = auto_generated_filter_paths
+        args.resolved_block_metadata_label = _results_block_metadata_label(
+            cli_block_metadata=args.block_metadata,
+            jobs=export_jobs,
+            verifier_backend=args.verifier_backend,
+        )
+        args.resolved_verifier_backend = _results_verifier_backend_label(
+            verifier_backend=args.verifier_backend,
+            batched_geomcad=args.batched_geomcad,
+        )
+        export_dir = _run_export_only(
+            args=args,
+            jobs=export_jobs,
+            db_path=db_path,
+            block_size=block_size,
+            cli_block_metadata=args.block_metadata,
+            grid_depth=args.grid_depth,
+        )
+        print(f"[bench] Wrote export payload under {export_dir}")
+        return []
 
     jobs = _prepare_benchmark_jobs(
         args=args,
@@ -873,6 +969,174 @@ def _prepare_benchmark_jobs(
     return _apply_block_budget(jobs, max_blocks_total)
 
 
+def _prepare_export_jobs_per_model(
+    *,
+    args: argparse.Namespace,
+    db_path: Path,
+    block_size: int,
+    training_blocks: int,
+    max_blocks_total: int | None,
+    filters: list[FilterSpec],
+    model_specs: dict[str, FunctionSpec],
+) -> list[BenchmarkJob]:
+    jobs_by_model: dict[tuple[str, str], BenchmarkJob] = {}
+    for filter_spec in filters:
+        model_spec = model_specs[filter_spec.model_name]
+        onnx_path = model_onnx_path(
+            args.database,
+            args.model_kind,
+            model_spec.task_type,
+            model_spec.table,
+            model_spec.name,
+        )
+        if not onnx_path.exists():
+            shallow_path = model_onnx_path(
+                args.database,
+                "shallow",
+                model_spec.task_type,
+                model_spec.table,
+                model_spec.name,
+            )
+            hint = (
+                f" The shallow model exists at '{shallow_path}'; rerun with `--model-kind shallow`."
+                if args.model_kind != "shallow" and shallow_path.exists()
+                else (
+                    f" Train it first with `uv run python train.py --database {args.database} "
+                    f"--model-kind {args.model_kind}`."
+                )
+            )
+            raise FileNotFoundError(
+                f"Missing ONNX model for export model='{model_spec.name}' "
+                f"(kind='{args.model_kind}') at '{onnx_path}'.{hint}"
+            )
+        all_block_ids = list_block_ids(filter_spec.table, db_path, block_size)
+        benchmark_block_ids = all_block_ids[training_blocks:]
+        excluded_training_blocks = len(all_block_ids[:training_blocks])
+        key = (filter_spec.table, filter_spec.model_name)
+        if key not in jobs_by_model:
+            jobs_by_model[key] = BenchmarkJob(
+                filter_id=0,
+                filter_spec=filter_spec,
+                model_spec=model_spec,
+                model_path=onnx_path,
+                block_ids=benchmark_block_ids,
+                excluded_training_blocks=excluded_training_blocks,
+            )
+    jobs = [
+        BenchmarkJob(
+            filter_id=index,
+            filter_spec=job.filter_spec,
+            model_spec=job.model_spec,
+            model_path=job.model_path,
+            block_ids=job.block_ids[:max_blocks_total] if max_blocks_total is not None else job.block_ids,
+            excluded_training_blocks=job.excluded_training_blocks,
+        )
+        for index, job in enumerate(jobs_by_model.values(), start=1)
+    ]
+    print(f"[bench] Prepared {len(jobs)} export job(s) after model grouping")
+    return jobs
+
+
+def _run_export_only(
+    *,
+    args: argparse.Namespace,
+    jobs: list[BenchmarkJob],
+    db_path: Path,
+    block_size: int,
+    cli_block_metadata: str | None,
+    grid_depth: int | None,
+) -> Path:
+    model_ground_truth_cache_paths = _ground_truth_cache_paths_for_filters(
+        database=args.database,
+        jobs=jobs,
+        resolved_filters_path=getattr(args, "_resolved_filters_path", None),
+        saved_generated_filters_path=args.save_generated_filters,
+        auto_generated_filter_paths=getattr(args, "_auto_generated_filter_paths", {}),
+        range_alpha=args.range_alpha,
+        range_start_samples=args.range_start_samples,
+        range_seed=args.range_seed,
+        task_type=args.task_type,
+    )
+    benchmark_dir = _export_benchmark_dir(args, jobs)
+    benchmark_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[bench] Writing export payload into {benchmark_dir}")
+    metadata_bundles: dict[tuple[str, tuple[int, ...], str, int], BlockMetadataBundle] = {}
+    exported_metadata_keys: set[tuple[str, tuple[int, ...], str, int]] = set()
+    total_jobs = len(jobs)
+    pending_ground_truth_jobs: list[BenchmarkJob] = []
+    for index, job in enumerate(jobs, start=1):
+        kind = _resolve_block_metadata_kind(cli_block_metadata, job.filter_spec)
+        resolved_grid_depth = _resolve_grid_depth(grid_depth, job.filter_spec)
+        metadata_key = (
+            job.model_spec.name,
+            tuple(job.block_ids),
+            kind,
+            resolved_grid_depth,
+        )
+        if metadata_key not in exported_metadata_keys:
+            bundle = _collect_metadata_bundle(
+                model_spec=job.model_spec,
+                filter_spec=job.filter_spec,
+                db_path=db_path,
+                block_size=block_size,
+                candidate_block_ids=job.block_ids,
+                kind=kind,
+                grid_depth=resolved_grid_depth,
+            )
+            metadata_bundles[metadata_key] = bundle
+            _write_export_metadata_file(
+                benchmark_dir=benchmark_dir,
+                args=args,
+                job=job,
+                rows=_build_export_rows_from_metadata_bundle(
+                    job,
+                    bundle,
+                    db_path,
+                    block_size,
+                ),
+                metadata_kind=kind,
+            )
+            exported_metadata_keys.add(metadata_key)
+        template_name = job.filter_spec.template_name or job.filter_spec.name
+        cache_path = model_ground_truth_cache_paths.get(template_name)
+        if cache_path is None:
+            raise ValueError(
+                f"Missing model ground truth cache path for filter template '{template_name}'."
+            )
+        expected_cache_key = model_ground_truth_cache_key(
+            filter_spec=job.filter_spec,
+            model_spec=job.model_spec,
+            model_path=job.model_path,
+            block_ids=job.block_ids,
+            block_size=block_size,
+        )
+        ground_truth_path = _export_ground_truth_path(benchmark_dir, job)
+        if _export_ground_truth_matches_cache(ground_truth_path, expected_cache_key):
+            print(
+                f"[bench] Reusing exported ground truth {index}/{total_jobs}: "
+                f"filter={job.filter_spec.name} path={ground_truth_path}"
+            )
+            continue
+        pending_ground_truth_jobs.append(job)
+    if pending_ground_truth_jobs:
+        model_ground_truth_caches = _prepare_model_ground_truth_caches(
+            jobs=pending_ground_truth_jobs,
+            db_path=db_path,
+            block_size=block_size,
+            cache_paths_by_template=model_ground_truth_cache_paths,
+        )
+        _write_export_ground_truth_files(
+            benchmark_dir=benchmark_dir,
+            args=args,
+            jobs=pending_ground_truth_jobs,
+            model_ground_truth_caches=model_ground_truth_caches,
+            db_path=db_path,
+            block_size=block_size,
+        )
+    args._metadata_size_summary = _metadata_size_summary(metadata_bundles)
+    return benchmark_dir
+
+
 
 def _validate_geomcad_jobs(*, jobs: list[BenchmarkJob], database: str) -> list[BenchmarkJob]:
     non_regressor_models = sorted({
@@ -920,7 +1184,7 @@ def _validate_geomcad_jobs(*, jobs: list[BenchmarkJob], database: str) -> list[B
     print(
         "[bench] Skipping GeomCAD jobs with missing compiled models under "
         f"{compiled_models_dir(database)}: removed {removed_jobs} job(s) across "
-        f"{len(missing_artifacts)} model(s). Run `scripts/compile_geomcad_models.sh {database}` "
+        f"{len(missing_artifacts)} model(s). Run `scripts/compile-geomcad-models.sh {database}` "
         "to include them.\n"
         f"{preview}{suffix}"
     )
@@ -1009,6 +1273,7 @@ def _resolve_filter_specs(
         )
 
     requested_filters = get_filter_specs(args.database, args.filters, None)
+
     auto_generated_filter_paths = _default_generated_filters_paths(
         database=args.database,
         template_names=_selected_filter_template_names(requested_filters, args.task_type),
@@ -1020,6 +1285,7 @@ def _resolve_filter_specs(
     if auto_generated_filter_paths and all(
         path.exists() for path in auto_generated_filter_paths.values()
     ):
+        _cleanup_stale_generated_filter_specs(auto_generated_filter_paths.values())
         cached_paths = tuple(auto_generated_filter_paths.values())
         print(
             "[bench] Reusing cached expanded filters from "
@@ -1131,7 +1397,38 @@ def _write_grouped_filter_specs(
         if template_name in grouped_specs:
             grouped_specs[template_name].append(spec)
     for template_name, output_path in paths_by_template.items():
+        _cleanup_stale_generated_filter_specs([output_path])
         write_filter_specs(output_path, grouped_specs.get(template_name, []))
+
+
+def _cleanup_stale_generated_filter_specs(paths: Iterable[Path]) -> None:
+    for path in paths:
+        if not path.parent.exists():
+            continue
+        prefix = _generated_filter_stem_prefix(path)
+        current_cache_path = _generated_filter_cache_path(path)
+        for stale_path in path.parent.glob(f"{prefix}__*.json"):
+            if stale_path == path:
+                continue
+            stale_path.unlink()
+            stale_cache_path = _generated_filter_cache_path(stale_path)
+            if stale_cache_path.exists():
+                stale_cache_path.unlink()
+        for stale_cache_path in path.parent.glob(f"{prefix}__*__model_ground_truth.duckdb"):
+            if stale_cache_path == current_cache_path:
+                continue
+            stale_cache_path.unlink()
+
+
+def _generated_filter_cache_path(path: Path) -> Path:
+    return path.with_name(f"{path.stem}__model_ground_truth.duckdb")
+
+
+def _generated_filter_stem_prefix(path: Path) -> str:
+    stem = path.stem
+    if "__" not in stem:
+        return stem
+    return stem.rsplit("__", 1)[0]
 
 
 def _format_filter_source_label(
@@ -1344,7 +1641,7 @@ def _run_jobs_serially(
         )
         if job_index > 0:
             print()
-        result = _run_benchmark_job(
+        result, _block_evaluations = _run_benchmark_job(
             job=job,
             db_path=db_path,
             block_size=block_size,
@@ -1362,6 +1659,7 @@ def _run_jobs_serially(
             show_progress=True,
             progress_queue=None,
             model_ground_truth=model_ground_truth_caches[job.filter_id],
+            capture_evaluations=False,
         )
         results.append(asdict(result))
     return results
@@ -1421,6 +1719,7 @@ def _run_jobs_in_parallel(
                         metadata_bundle=metadata_bundles.get(cache_key),
                         progress_queue=progress_queue,
                         model_ground_truth=model_ground_truth_caches[job.filter_id],
+                        capture_evaluations=False,
                     )
                 ] = job_index
             pending = set(future_to_index)
@@ -1449,7 +1748,8 @@ def _run_jobs_in_parallel(
                     completed_results[job_index] = result_dict
             _drain_progress_queue(progress_queue, progress_states)
     _clear_parallel_progress_render()
-    return [completed_results[index] for index in sorted(completed_results)]
+    ordered_indices = sorted(completed_results)
+    return [completed_results[index] for index in ordered_indices]
 
 
 def _apply_block_budget(
@@ -1505,10 +1805,11 @@ def _run_benchmark_job_capture_logs(
     metadata_bundle: BlockMetadataBundle | None,
     progress_queue: object | None,
     model_ground_truth: ModelGroundTruthCache,
+    capture_evaluations: bool,
 ) -> tuple[int, dict, str]:
     buffer = io.StringIO()
     with contextlib.redirect_stdout(buffer):
-        result = _run_benchmark_job(
+        result, _block_evaluations = _run_benchmark_job(
             job=job,
             db_path=db_path,
             block_size=block_size,
@@ -1526,8 +1827,13 @@ def _run_benchmark_job_capture_logs(
             show_progress=False,
             progress_queue=progress_queue,
             model_ground_truth=model_ground_truth,
+            capture_evaluations=capture_evaluations,
         )
-    return job_index, asdict(result), buffer.getvalue()
+    return (
+        job_index,
+        asdict(result),
+        buffer.getvalue(),
+    )
 
 
 def _model_kind_for_job(job: BenchmarkJob) -> str:
@@ -1556,7 +1862,8 @@ def _run_benchmark_job(
     show_progress: bool,
     progress_queue: object | None,
     model_ground_truth: ModelGroundTruthCache,
-) -> BenchmarkResult:
+    capture_evaluations: bool,
+) -> tuple[BenchmarkResult, list[BlockEvaluation]]:
     filter_spec = job.filter_spec
     model_spec = job.model_spec
     benchmark_block_ids = job.block_ids
@@ -1623,6 +1930,7 @@ def _run_benchmark_job(
     metadata_collection_ms: float | None = None
     metadata_pair_count: int | None = None
     skipping_ms: float | None = None
+    block_evaluations: list[BlockEvaluation] = []
     result_metadata_label = _results_block_metadata_label(
         cli_block_metadata=metadata_kind,
         jobs=[job],
@@ -1688,11 +1996,13 @@ def _run_benchmark_job(
             verifier_timeout_seconds=verifier_timeout_seconds,
             metadata_kind=result_metadata_label,
             grid_depth=grid_depth,
+            capture_evaluations=capture_evaluations,
         )
         kept_blocks = skip_summary.kept_blocks
         timeout_blocks = skip_summary.timeout_blocks
         error_blocks = skip_summary.error_blocks
         skipping_ms = skip_summary.skipping_ms
+        block_evaluations = skip_summary.evaluations or []
     scanned_rows = count_rows_for_blocks(
         filter_spec.table,
         kept_blocks,
@@ -1812,7 +2122,7 @@ def _run_benchmark_job(
             done=True,
         ),
     )
-    return result
+    return result, block_evaluations
 
 
 def _publish_progress(progress_queue: object | None, state: ProgressState) -> None:
@@ -2816,6 +3126,7 @@ def _kept_blocks_for_filter(
     verifier_timeout_seconds: float,
     metadata_kind: str,
     grid_depth: int,
+    capture_evaluations: bool,
 ) -> SkipSummary:
     total_blocks = len(candidate_block_ids)
     skipped_blocks = 0
@@ -2823,6 +3134,7 @@ def _kept_blocks_for_filter(
     error_blocks = 0
     kept_blocks: list[int] = []
     skipping_ms = 0.0
+    evaluations: list[BlockEvaluation] = []
     block_feature_con = None
     if verifier_backend == "pytorch":
         block_feature_con = duckdb.connect(str(db_path), read_only=True)
@@ -2859,6 +3171,22 @@ def _kept_blocks_for_filter(
                     skipped_blocks += 1
                 else:
                     kept_blocks.append(result.block_id)
+                if capture_evaluations:
+                    metadata = metadata_by_block.get(result.block_id)
+                    evaluations.append(
+                        BlockEvaluation(
+                            block_id=result.block_id,
+                            row_id_start=result.block_id * block_size,
+                            row_id_end=((result.block_id + 1) * block_size) - 1,
+                            feature_bounds=metadata.input_bounds,
+                            block_metadata=metadata,
+                            verifier_result=result,
+                            block_row_count=None,
+                            matching_rows=None,
+                            udf_count=None,
+                            udf_ms=None,
+                        )
+                    )
                 if show_progress:
                     _print_verifier_progress(
                         current=index,
@@ -2892,6 +3220,7 @@ def _kept_blocks_for_filter(
                 timeout_blocks=timeout_blocks,
                 error_blocks=error_blocks,
                 skipping_ms=skipping_ms,
+                evaluations=evaluations,
             )
         for index, block_id in enumerate(candidate_block_ids, start=1):
             # Reuse precomputed bounds in the full benchmark path.
@@ -2926,6 +3255,8 @@ def _kept_blocks_for_filter(
                 skipped_blocks += 1
             else:
                 kept_blocks.append(block_id)
+            if capture_evaluations:
+                evaluations.append(evaluation)
             if show_progress:
                 _print_verifier_progress(
                     current=index,
@@ -2964,6 +3295,7 @@ def _kept_blocks_for_filter(
         timeout_blocks=timeout_blocks,
         error_blocks=error_blocks,
         skipping_ms=float(skipping_ms),
+        evaluations=evaluations,
     )
 
 
@@ -3349,6 +3681,413 @@ def _build_results_payload(
     return payload
 
 
+def _build_export_rows_from_metadata_bundle(
+    job: BenchmarkJob,
+    bundle: BlockMetadataBundle,
+    db_path: Path,
+    block_size: int,
+) -> list[dict]:
+    rows: list[dict] = []
+    filter_spec = job.filter_spec
+    for block_id in sorted(bundle.metadata_by_block):
+        metadata = bundle.metadata_by_block[block_id]
+        rows.append(
+            {
+                "block_id": block_id,
+                "_export_table": filter_spec.table,
+                "_export_model_name": job.model_spec.name,
+                "row_id_start": block_id * block_size,
+                "row_id_end": ((block_id + 1) * block_size) - 1,
+                "row_count": count_rows_for_blocks(
+                    filter_spec.table,
+                    [block_id],
+                    db_path,
+                    block_size,
+                ),
+                "metadata": asdict(metadata),
+            }
+        )
+    return rows
+
+
+def _build_export_ground_truth_rows_from_cache(
+    *,
+    job: BenchmarkJob,
+    model_ground_truth: ModelGroundTruthCache,
+    db_path: Path,
+    block_size: int,
+) -> list[dict]:
+    filter_spec = job.filter_spec
+    model_spec = job.model_spec
+    matching_rows_by_block = count_model_qualified_rows_by_block(
+        model_ground_truth.cache_path,
+        model_ground_truth.cache_key,
+        job.block_ids,
+        block_size,
+    )
+    block_rows_by_block = _count_rows_by_block(
+        filter_spec.table,
+        job.block_ids,
+        db_path,
+        block_size,
+    )
+    rows: list[dict] = []
+    for block_id in job.block_ids:
+        rows.append(
+            {
+                "table": filter_spec.table,
+                "model_name": model_spec.name,
+                "model_task_type": model_spec.task_type,
+                "filter_name": filter_spec.name,
+                "filter_template_name": (filter_spec.template_name or filter_spec.name),
+                "filter_type": filter_spec.filter_type,
+                "sql_predicate": filter_spec.sql_predicate,
+                "feature_columns": [feature.name for feature in model_spec.features],
+                "block_id": block_id,
+                "row_id_start": block_id * block_size,
+                "row_id_end": ((block_id + 1) * block_size) - 1,
+                "block_row_count": block_rows_by_block[block_id],
+                "matching_rows": matching_rows_by_block[block_id],
+            }
+        )
+    return rows
+
+
+def _count_rows_by_block(
+    table: str,
+    block_ids: list[int],
+    db_path: Path,
+    block_size: int,
+) -> dict[int, int]:
+    if not block_ids:
+        return {}
+    block_expression = f"CAST(FLOOR({ROW_ID_COLUMN} / {int(block_size)}) AS BIGINT)"
+    with duckdb.connect(str(db_path), read_only=True) as con:
+        ensure_row_id_column(con, table)
+        rows = con.execute(
+            f"""
+            SELECT {block_expression} AS block_id, COUNT(*) AS row_count
+            FROM {table}
+            WHERE {block_expression} IN ({_int_list(block_ids)})
+            GROUP BY block_id
+            """
+        ).fetchall()
+    counts = {int(block_id): int(row_count) for block_id, row_count in rows}
+    return {int(block_id): counts.get(int(block_id), 0) for block_id in block_ids}
+
+
+def _int_list(values: list[int]) -> str:
+    if not values:
+        raise ValueError("Expected at least one integer value.")
+    return ", ".join(str(int(value)) for value in values)
+
+
+def _write_export_ground_truth_files(
+    *,
+    benchmark_dir: Path,
+    args: argparse.Namespace,
+    jobs: list[BenchmarkJob],
+    model_ground_truth_caches: dict[int, ModelGroundTruthCache],
+    db_path: Path,
+    block_size: int,
+) -> None:
+    if not jobs:
+        return
+    max_workers = min(args.jobs, len(jobs))
+    if max_workers <= 1:
+        for index, job in enumerate(jobs, start=1):
+            _write_export_ground_truth_for_job(
+                benchmark_dir=benchmark_dir,
+                args=args,
+                job=job,
+                model_ground_truth=model_ground_truth_caches[job.filter_id],
+                db_path=db_path,
+                block_size=block_size,
+            )
+            print(
+                f"[bench] Export ground truth {index}/{len(jobs)}: "
+                f"table={job.filter_spec.table} model={job.model_spec.name} "
+                f"filter={job.filter_spec.name} blocks={len(job.block_ids)}"
+            )
+        return
+
+    print(
+        f"[bench] Dumping ground truth for {len(jobs)} filter(s) "
+        f"with up to {max_workers} worker(s)"
+    )
+    with ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_job = {
+            executor.submit(
+                _write_export_ground_truth_for_job_capture_logs,
+                benchmark_dir=benchmark_dir,
+                args=args,
+                job=job,
+                model_ground_truth=model_ground_truth_caches[job.filter_id],
+                db_path=db_path,
+                block_size=block_size,
+            ): job
+            for job in jobs
+        }
+        pending = set(future_to_job)
+        completed = 0
+        while pending:
+            done, pending = wait(
+                pending,
+                return_when=FIRST_COMPLETED,
+            )
+            for future in done:
+                job = future_to_job[future]
+                output_path, logs = future.result()
+                if logs:
+                    print(logs, end="" if logs.endswith("\n") else "\n")
+                completed += 1
+                print(
+                    f"[bench] Export ground truth {completed}/{len(jobs)}: "
+                    f"table={job.filter_spec.table} model={job.model_spec.name} "
+                    f"filter={job.filter_spec.name} path={output_path}"
+                )
+
+
+def _write_export_ground_truth_for_job_capture_logs(
+    *,
+    benchmark_dir: Path,
+    args: argparse.Namespace,
+    job: BenchmarkJob,
+    model_ground_truth: ModelGroundTruthCache,
+    db_path: Path,
+    block_size: int,
+) -> tuple[str, str]:
+    buffer = io.StringIO()
+    with contextlib.redirect_stdout(buffer):
+        output_path = _write_export_ground_truth_for_job(
+            benchmark_dir=benchmark_dir,
+            args=args,
+            job=job,
+            model_ground_truth=model_ground_truth,
+            db_path=db_path,
+            block_size=block_size,
+        )
+    return str(output_path), buffer.getvalue()
+
+
+def _write_export_ground_truth_for_job(
+    *,
+    benchmark_dir: Path,
+    args: argparse.Namespace,
+    job: BenchmarkJob,
+    model_ground_truth: ModelGroundTruthCache,
+    db_path: Path,
+    block_size: int,
+) -> Path:
+    ground_truth_rows = _build_export_ground_truth_rows_from_cache(
+        job=job,
+        model_ground_truth=model_ground_truth,
+        db_path=db_path,
+        block_size=block_size,
+    )
+    return _write_export_ground_truth_file(
+        benchmark_dir=benchmark_dir,
+        args=args,
+        job=job,
+        rows=ground_truth_rows,
+        model_ground_truth=model_ground_truth,
+    )
+
+
+def _export_benchmark_dir(
+    args: argparse.Namespace,
+    jobs: list[BenchmarkJob],
+) -> Path:
+    cached = getattr(args, "_export_benchmark_dir", None)
+    if isinstance(cached, Path):
+        return cached
+
+    label = f"bs{args.block_size}"
+    benchmark_dir = (args.export or Path("export")) / args.database / args.model_kind / label
+    args._export_benchmark_dir = benchmark_dir
+    return benchmark_dir
+
+
+def _write_export_metadata_file(
+    *,
+    benchmark_dir: Path,
+    args: argparse.Namespace,
+    job: BenchmarkJob,
+    rows: list[dict],
+    metadata_kind: str,
+) -> Path:
+    table = job.filter_spec.table
+    model_name = job.model_spec.name
+    group_dir = (
+        benchmark_dir
+        / _sanitize_results_label(table)
+        / _sanitize_results_label(model_name)
+    )
+    group_dir.mkdir(parents=True, exist_ok=True)
+    unique_blocks: dict[int, dict] = {}
+    for row in rows:
+        block_id = int(row["block_id"])
+        unique_blocks.setdefault(block_id, _metadata_export_block(row))
+    blocks = [unique_blocks[block_id] for block_id in sorted(unique_blocks)]
+    export_grid_depth = _resolve_export_grid_depth(blocks, metadata_kind)
+    payload = {
+        "table": table,
+        "model_name": model_name,
+        "model_task_type": job.model_spec.task_type,
+        "model_kind": args.model_kind,
+        "metadata_kind": metadata_kind,
+        "grid_depth": export_grid_depth,
+        "block_size": args.block_size,
+        "feature_columns": [feature.name for feature in job.model_spec.features],
+        "blocks": blocks,
+    }
+    metadata_label = _sanitize_results_label(str(metadata_kind or "metadata")) or "metadata"
+    output_path = group_dir / f"{metadata_label}-metadata.json"
+    output_path.write_text(json.dumps(payload, indent=2) + "\n")
+    print(
+        f"[bench] Exported table={table} model={model_name} "
+        f"metadata={metadata_kind} blocks={len(payload['blocks'])} to {output_path}"
+    )
+    return output_path
+
+
+def _write_export_ground_truth_file(
+    *,
+    benchmark_dir: Path,
+    args: argparse.Namespace,
+    job: BenchmarkJob,
+    rows: list[dict],
+    model_ground_truth: ModelGroundTruthCache | None,
+) -> Path:
+    table = job.filter_spec.table
+    model_name = job.model_spec.name
+    filter_name = job.filter_spec.name
+    group_dir = (
+        benchmark_dir
+        / _sanitize_results_label(table)
+        / _sanitize_results_label(model_name)
+        / "filters"
+        / (_sanitize_results_label(filter_name) or "filter")
+    )
+    group_dir.mkdir(parents=True, exist_ok=True)
+    blocks = [_ground_truth_export_block(row) for row in sorted(rows, key=lambda row: int(row["block_id"]))]
+    matching_rows = [
+        int(block["matching_rows"])
+        for block in blocks
+        if block.get("matching_rows") is not None
+    ]
+    payload = {
+        "table": table,
+        "model_name": model_name,
+        "model_task_type": job.model_spec.task_type,
+        "model_kind": args.model_kind,
+        "block_size": args.block_size,
+        "feature_columns": [feature.name for feature in job.model_spec.features],
+        "filter": _export_filter_payload(job.filter_spec),
+        "ground_truth_summary": {
+            "total_blocks": len(blocks),
+            "matching_blocks": sum(1 for value in matching_rows if value > 0),
+            "matching_rows": sum(matching_rows),
+        },
+        "blocks": blocks,
+    }
+    if model_ground_truth is not None:
+        payload["model_ground_truth_cache_path"] = str(model_ground_truth.cache_path)
+        payload["model_ground_truth_cache_key"] = model_ground_truth.cache_key
+    output_path = _export_ground_truth_path(benchmark_dir, job)
+    output_path.write_text(json.dumps(payload, indent=2) + "\n")
+    print(
+        f"[bench] Exported table={table} model={model_name} filter={filter_name} "
+        f"ground_truth_blocks={len(payload['blocks'])} to {output_path}"
+    )
+    return output_path
+
+
+def _export_filter_payload(filter_spec: FilterSpec) -> dict:
+    payload = {
+        "name": filter_spec.name,
+        "template_name": (filter_spec.template_name or filter_spec.name),
+        "description": filter_spec.description,
+        "type": filter_spec.filter_type,
+        "sql_predicate": filter_spec.sql_predicate,
+    }
+    if filter_spec.predicate_lower is not None:
+        payload["predicate_lower"] = filter_spec.predicate_lower
+    if filter_spec.predicate_upper is not None:
+        payload["predicate_upper"] = filter_spec.predicate_upper
+    if filter_spec.target_class is not None:
+        payload["target_class"] = filter_spec.target_class
+    if filter_spec.sampled_width is not None:
+        payload["sampled_width"] = filter_spec.sampled_width
+    if filter_spec.sampled_start is not None:
+        payload["sampled_start"] = filter_spec.sampled_start
+    return payload
+
+
+def _export_ground_truth_path(benchmark_dir: Path, job: BenchmarkJob) -> Path:
+    return (
+        benchmark_dir
+        / _sanitize_results_label(job.filter_spec.table)
+        / _sanitize_results_label(job.model_spec.name)
+        / "filters"
+        / (_sanitize_results_label(job.filter_spec.name) or "filter")
+        / "ground-truth.json"
+    )
+
+
+def _export_ground_truth_matches_cache(path: Path, cache_key: str) -> bool:
+    if not path.exists():
+        return False
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError):
+        return False
+    return payload.get("model_ground_truth_cache_key") == cache_key
+
+
+def _metadata_export_block(row: dict) -> dict:
+    return {
+        "block_id": row["block_id"],
+        "row_id_start": row["row_id_start"],
+        "row_id_end": row["row_id_end"],
+        "row_count": row.get("row_count", row.get("block_row_count")),
+        "metadata": row.get("metadata") or row.get("block_metadata"),
+    }
+
+
+def _ground_truth_export_block(row: dict) -> dict:
+    return {
+        "block_id": row["block_id"],
+        "row_id_start": row["row_id_start"],
+        "row_id_end": row["row_id_end"],
+        "block_row_count": row.get("block_row_count", row.get("row_count")),
+        "matching_rows": row.get("matching_rows"),
+    }
+
+
+def _resolve_export_grid_depth(
+    blocks: list[dict],
+    metadata_kind: str | None,
+) -> int | None:
+    if metadata_kind not in {"grid", "bounded_convex_hull"}:
+        return None
+    grid_depths: set[int] = set()
+    for block in blocks:
+        metadata = block.get("metadata") or {}
+        for geometry in metadata.get("pair_geometries") or []:
+            grid_depth = geometry.get("grid_depth")
+            if grid_depth is not None:
+                grid_depths.add(int(grid_depth))
+    if not grid_depths:
+        return None
+    if len(grid_depths) > 1:
+        raise RuntimeError(
+            "Expected exactly one grid depth in exported metadata payload; "
+            f"found {sorted(grid_depths)}."
+        )
+    return next(iter(grid_depths))
+
+
 def _serialize_args(args: argparse.Namespace) -> dict:
     serialized: dict[str, object] = {}
     for key, value in vars(args).items():
@@ -3379,6 +4118,8 @@ def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
     results = run_benchmarks(args)
+    if args.export is not None and not results:
+        return
     if args.prepare_filters_only:
         display_results = _format_prepared_filters_for_display(results)
         print(json.dumps(display_results, indent=2))

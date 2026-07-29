@@ -7,7 +7,7 @@ DRY_RUN="0"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/run_block_metadata_table_filters.sh [options]
+Usage: scripts/run-block-metadata-table-filters.sh [options]
 
 Rerun the exact benchmark configurations used by
 `notebooks/block-metadata-size-build-table.ipynb` for the two selected deep

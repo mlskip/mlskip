@@ -12,7 +12,7 @@ MAX_COLUMNS_EXPLICIT="0"
 
 usage() {
   cat <<'USAGE'
-Usage: scripts/compile_geomcad_models.sh [database] [--model metadata/models/.../shallow/.../*.onnx | --max-columns N] [--force]
+Usage: scripts/compile-geomcad-models.sh [database] [--model metadata/models/.../shallow/.../*.onnx | --max-columns N] [--force]
 
 Compiles shallow regressor ONNX models under metadata/models into
 metadata/compiled-models using geometrical-cad/compile_onnx_model.py.
@@ -21,11 +21,11 @@ By default, only models with at most 2 input features are compiled.
 to a shallow regressor model.
 
 Examples:
-  scripts/compile_geomcad_models.sh
-  scripts/compile_geomcad_models.sh tpch
-  scripts/compile_geomcad_models.sh tpcds --force
-  scripts/compile_geomcad_models.sh --max-columns 2
-  scripts/compile_geomcad_models.sh --model metadata/models/tpcds/shallow/regressor/store_sales/store_sales_net_profit/store_sales_net_profit.onnx
+  scripts/compile-geomcad-models.sh
+  scripts/compile-geomcad-models.sh tpch
+  scripts/compile-geomcad-models.sh tpcds --force
+  scripts/compile-geomcad-models.sh --max-columns 2
+  scripts/compile-geomcad-models.sh --model metadata/models/tpcds/shallow/regressor/store_sales/store_sales_net_profit/store_sales_net_profit.onnx
 USAGE
 }
 
